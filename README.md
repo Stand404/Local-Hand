@@ -20,7 +20,7 @@
 ## 安装
 
 ### Windows or Android
-下载 [Releases](https://github.com/stand114514/Local-Hand/releases) 的编译版本
+下载 [Releases](https://github.com/stand404/Local-Hand/releases) 的编译版本
 
 目前只有 Android 和 Windows 应用程序，其他平台请自行构建，开发人员没有设备测试
 
