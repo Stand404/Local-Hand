@@ -47,7 +47,7 @@ class MessageWidget extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: mine ? colorScheme.primary : colorScheme.surface,
-            borderRadius: _bubbleRadius(mine),
+            borderRadius: _bubbleRadius(),
             border: mine
                 ? null
                 : Border.all(
@@ -80,7 +80,7 @@ class MessageWidget extends StatelessWidget {
             color: mine
                 ? colorScheme.primaryContainer.withValues(alpha: 0.7)
                 : colorScheme.surface,
-            borderRadius: _bubbleRadius(mine),
+            borderRadius: _bubbleRadius(),
             border: Border.all(
               color: mine
                   ? colorScheme.primary.withValues(alpha: 0.16)
@@ -205,15 +205,8 @@ class MessageWidget extends StatelessWidget {
     return sizeText.isEmpty ? '传输中 $percent%' : '$sizeText · $percent%';
   }
 
-  BorderRadius _bubbleRadius(bool mine) {
-    const large = Radius.circular(18);
-    const small = Radius.circular(5);
-    return BorderRadius.only(
-      topLeft: large,
-      topRight: large,
-      bottomLeft: mine ? large : small,
-      bottomRight: mine ? small : large,
-    );
+  BorderRadius _bubbleRadius() {
+    return BorderRadius.circular(18);
   }
 
   Future<void> _openFile(BuildContext context) async {

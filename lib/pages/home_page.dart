@@ -12,6 +12,7 @@ import '../components/qr_pair_sheet.dart';
 import '../components/device_icon.dart';
 import '../core/android_bridge.dart';
 import '../core/device_info.dart';
+import '../core/file_storage.dart';
 import '../core/protocol.dart';
 import '../core/secure_channel.dart';
 import '../models/friends.dart';
@@ -96,16 +97,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _checkStorage() async {
     if (!AndroidBridge.isAndroid) return;
-    final granted = await AndroidBridge.hasStorageAccess();
+    final ok = await canWriteReceiveDirectory();
     if (!mounted) return;
-    setState(() => _storageGranted = granted);
+    setState(() => _storageGranted = ok);
   }
 
   Future<void> _requestStorage() async {
     await AndroidBridge.requestStorageAccess();
-    await Future.delayed(const Duration(milliseconds: 400));
-    await _checkStorage();
+    // 系统设置或权限弹窗的返回时机不固定，轮询到接收目录真正可写为止。
+    for (var i = 0; i < 20; i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      if (await canWriteReceiveDirectory()) {
+        setState(() => _storageGranted = true);
+        return;
+      }
+    }
     if (!mounted) return;
+    await _checkStorage();
     if (!_storageGranted) {
       _showSnack('请在系统设置中允许 Local Hand 访问所有文件');
     }

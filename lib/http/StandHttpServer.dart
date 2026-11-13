@@ -277,7 +277,15 @@ class _BodyReader {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await _iterator.cancel();
+    try {
+      // 直接 cancel 会让 dart:io 判定请求未读完并断开连接，
+      // 客户端因此收不到 200 响应，出现“对方已收到但显示发送失败”。
+      while (await _iterator.moveNext().timeout(const Duration(seconds: 5))) {
+        // 丢弃请求体剩余字节。
+      }
+    } catch (_) {
+      await _iterator.cancel();
+    }
   }
 }
 

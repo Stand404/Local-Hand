@@ -20,6 +20,19 @@ Future<Directory> receiveDirectory() async {
   return dir;
 }
 
+/// 通过实际写入探针判断接收目录是否可写，比权限标志更贴近真实可用性。
+Future<bool> canWriteReceiveDirectory() async {
+  try {
+    final dir = await receiveDirectory();
+    final probe = File('${dir.path}${Platform.pathSeparator}.lh_write_probe');
+    await probe.writeAsBytes(const [0], flush: true);
+    await probe.delete();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// 去掉路径分隔符和非法字符，避免对方构造恶意文件名写到其他目录。
 String sanitizeFileName(String name) {
   var base = name.replaceAll('\\', '/').split('/').last.trim();

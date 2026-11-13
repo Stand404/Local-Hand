@@ -9,15 +9,6 @@ class AndroidBridge {
 
   static bool get isAndroid => Platform.isAndroid;
 
-  static Future<bool> hasStorageAccess() async {
-    if (!isAndroid) return true;
-    try {
-      return await _channel.invokeMethod<bool>('hasStorageAccess') ?? false;
-    } catch (_) {
-      return true;
-    }
-  }
-
   /// 申请“所有文件访问权限”。Android 11+ 会跳转到系统设置页。
   static Future<bool> requestStorageAccess() async {
     if (!isAndroid) return true;
