@@ -34,7 +34,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final ValueNotifier<bool> _isClose = ValueNotifier(false);
 
   String _myHost = '';
-  LocalDevice _device = const LocalDevice('未知设备', '未知');
   bool _storageGranted = true;
 
   bool _inSession = false;
@@ -91,12 +90,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _refreshLocalInfo() async {
     final host = await _multicast.loadLocalHost();
-    final device = await loadLocalDevice();
     if (!mounted) return;
-    setState(() {
-      _myHost = host;
-      _device = device;
-    });
+    setState(() => _myHost = host);
   }
 
   Future<void> _checkStorage() async {
@@ -334,15 +329,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final devices = friends.friends;
       return Scaffold(
         backgroundColor: colorScheme.surface,
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _openPairSheet,
-          icon: Icon(_isDesktop
-              ? Icons.qr_code_2_rounded
-              : Icons.qr_code_scanner_rounded),
-          label: Text(_isDesktop ? '配对设备' : '扫码配对'),
-        ),
         body: RefreshIndicator(
-          edgeOffset: 140,
           onRefresh: _refreshDevices,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -365,7 +352,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     childCount: devices.length,
                   ),
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+              const SliverToBoxAdapter(child: SizedBox(height: 40)),
             ],
           ),
         ),
@@ -376,120 +363,77 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _buildHeader(ColorScheme colorScheme) {
     return SliverAppBar(
       pinned: true,
-      expandedHeight: 208,
       toolbarHeight: 64,
-      backgroundColor: colorScheme.primary,
-      foregroundColor: colorScheme.onPrimary,
-      titleSpacing: 20,
-      title: const Text(
-        'Local Hand',
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 22),
-      ),
-      actions: [
-        IconButton(
-          tooltip: '刷新设备',
-          onPressed: _refreshDevices,
-          icon: const Icon(Icons.refresh_rounded),
-        ),
-        IconButton(
-          tooltip: _isDesktop ? '配对设备' : '扫码配对',
-          onPressed: _openPairSheet,
-          icon: const Icon(Icons.qr_code_2_rounded),
-        ),
-        const SizedBox(width: 6),
-      ],
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                colorScheme.primary,
-                Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.55)!,
-              ],
-            ),
-          ),
-          child: Stack(
+      automaticallyImplyLeading: false,
+      titleSpacing: 0,
+      backgroundColor: colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      title: _centered(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
             children: [
-              Positioned(
-                right: -40,
-                top: 10,
-                child: _decorCircle(160, Colors.white.withValues(alpha: 0.06)),
-              ),
-              Positioned(
-                right: 60,
-                bottom: 10,
-                child: _decorCircle(90, Colors.white.withValues(alpha: 0.05)),
-              ),
-              SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 76, 20, 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '局域网文件与消息传输',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: colorScheme.onPrimary.withValues(alpha: 0.82),
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          _headerChip(
-                            Icons.wifi_rounded,
-                            _myHost.isEmpty ? '未连接网络' : '本机 $_myHost',
-                          ),
-                          const SizedBox(width: 8),
-                          _headerChip(
-                            deviceIconData(_device.type),
-                            _device.displayName,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: Icon(
+                  Icons.swap_horiz_rounded,
+                  size: 22,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Local Hand',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      '局域网文件与消息传输',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: _isDesktop ? '配对设备' : '扫码配对',
+                onPressed: _openPairSheet,
+                icon: const Icon(Icons.qr_code_2_rounded, size: 22),
+                color: colorScheme.onSurfaceVariant,
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _decorCircle(double size, Color color) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-  }
-
-  Widget _headerChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: Colors.white),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Divider(
+          height: 1,
+          thickness: 1,
+          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+        ),
       ),
     );
   }
