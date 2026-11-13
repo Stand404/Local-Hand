@@ -13,10 +13,25 @@ A simple, cross-platform LAN transmission tool built on Flutter.
 
 ## Function
 
-1. LAN search and connection devices
-2. Send and receive documents, text messages
-3. Open the file (bring up the media player or select another pop-up window)
-4. Message long press menu (copy text, copy full path, open folder)
+1. Automatic LAN discovery with a reliable TCP connection handshake
+2. Send and receive files and text messages, with multi-file selection
+3. End-to-end encryption: ECDH P-256 key agreement and AES-256-GCM for every message and file
+4. QR pairing: show or scan a QR code, one-time pairing code, encrypted session starts automatically
+5. Open the file (bring up the media player or select another pop-up window)
+6. Message long press menu (copy text, copy full path, open file location)
+7. Received files are scanned into the media library on Android, so other apps and file managers see them immediately; open the receive folder in one tap
+
+## Security
+
+- Every connection uses fresh ephemeral ECDH keys; session keys live only in memory and are discarded on disconnect.
+- Files are streamed in encrypted 256 KB frames. Chunk order, chunk count and file metadata are authenticated, so tampering, reordering or truncation is rejected.
+- File names are encrypted too, and the receiver sanitizes them so peers cannot write outside the receive folder.
+- QR pairing uses a random one-time code; reopening the pairing sheet refreshes it.
+
+## Permissions
+
+- Android: "All files access" is required to save received files into the system Downloads folder and refresh the media library; camera access is used for QR scanning.
+- iOS: camera (QR scanning) and local network (device discovery) permissions are required.
 
 ## Installation
 
