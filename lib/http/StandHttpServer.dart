@@ -26,6 +26,7 @@ class StandFile {
 /// AES-256-CTR + HMAC-SHA256 校验，失败的连接会被直接丢弃。
 class StandHttpServer {
   final Uint8List key;
+  final int port;
   final Function(StandFile standFile) receiveFileCallback;
   final Function(int index) receiveFileEndCallback;
   final Function(String message) receiveMsgCallback;
@@ -37,6 +38,7 @@ class StandHttpServer {
 
   StandHttpServer({
     required this.key,
+    this.port = transferPort,
     required this.receiveFileCallback,
     required this.receiveFileEndCallback,
     required this.receiveMsgCallback,
@@ -50,7 +52,7 @@ class StandHttpServer {
     try {
       final server = await HttpServer.bind(
         InternetAddress.anyIPv4,
-        transferPort,
+        port,
         shared: true,
       );
       _server = server;
@@ -172,23 +174,66 @@ class StandHttpServer {
     var sinkClosed = false;
 
     try {
-      for (var i = 0; i < totalChunks; i++) {
-        final header = await reader.readExact(frameHeaderLength);
-        if (header == null) throw const FormatException('missing frame header');
-        final length =
-            ByteData.sublistView(header).getUint32(0, Endian.big);
-        if (length < fileTagLength || length > fileChunkSize + fileTagLength) {
-          throw const FormatException('invalid frame length');
+      final window = worker.parallelism;
+
+      Future<({int start, List<Uint8List> frames})> readBatch(
+          int start) async {
+        final batch = <Uint8List>[];
+        var index = start;
+        while (batch.length < window && index < totalChunks) {
+          final header = await reader.readExact(frameHeaderLength);
+          if (header == null) {
+            throw const FormatException('missing frame header');
+          }
+          final length = ByteData.sublistView(header).getUint32(0, Endian.big);
+          if (length < fileTagLength ||
+              length > fileChunkSize + fileTagLength) {
+            throw const FormatException('invalid frame length');
+          }
+          final encrypted = await reader.readExact(length);
+          if (encrypted == null) throw const FormatException('missing frame');
+          batch.add(encrypted);
+          index++;
         }
-        final encrypted = await reader.readExact(length);
-        if (encrypted == null) throw const FormatException('missing frame');
-        final aad = utf8.encode('file|$i|$totalChunks|$nameBox');
-        final plain = await worker.openChunk(baseNonce, i, encrypted, aad);
-        sink.add(plain);
-        received += plain.length;
-        frames++;
-        onProgress(
-            totalSize == 0 ? 1 : min(1.0, received / totalSize), index);
+        return (start: start, frames: batch);
+      }
+
+      // 下一批的接收提前启动，与当前批次的解密和写盘重叠。
+      Future<({int start, List<Uint8List> frames})> prefetch(int start) {
+        final completer = Completer<({int start, List<Uint8List> frames})>();
+        readBatch(start)
+            .then(completer.complete, onError: completer.completeError);
+        return completer.future;
+      }
+
+      var next = window;
+      Future<({int start, List<Uint8List> frames})>? pending = prefetch(0);
+      try {
+        while (pending != null) {
+          final batch = await pending;
+          pending = next < totalChunks ? prefetch(next) : null;
+          next += window;
+          final plains = await Future.wait([
+            for (var k = 0; k < batch.frames.length; k++)
+              worker.openChunk(
+                baseNonce,
+                batch.start + k,
+                batch.frames[k],
+                utf8.encode('file|${batch.start + k}|$totalChunks|$nameBox'),
+              ),
+          ]);
+          for (final plain in plains) {
+            sink.add(plain);
+            received += plain.length;
+          }
+          frames += plains.length;
+          final flushing = sink.flush();
+          onProgress(
+              totalSize == 0 ? 1 : min(1.0, received / totalSize), index);
+          await flushing;
+        }
+      } finally {
+        pending?.ignore();
       }
 
       await reader.close();
@@ -246,37 +291,41 @@ class StandHttpServer {
 /// 按帧读取 HTTP 请求体，避免把整个文件读入内存。
 class _BodyReader {
   final StreamIterator<List<int>> _iterator;
-  Uint8List _buffer = Uint8List(0);
-  int _offset = 0;
+  final List<List<int>> _chunks = [];
+  int _buffered = 0;
   bool _closed = false;
 
   _BodyReader(Stream<List<int>> stream) : _iterator = StreamIterator(stream);
 
   Future<bool> _ensure(int length) async {
-    while (_buffer.length - _offset < length) {
+    while (_buffered < length) {
       if (_closed || !await _iterator.moveNext()) {
         _closed = true;
         return false;
       }
       final chunk = _iterator.current;
-      final remaining = _buffer.length - _offset;
-      final merged = Uint8List(remaining + chunk.length);
-      merged.setAll(0, _buffer.sublist(_offset));
-      merged.setAll(remaining, chunk);
-      _buffer = merged;
-      _offset = 0;
+      if (chunk.isEmpty) continue;
+      _chunks.add(chunk);
+      _buffered += chunk.length;
     }
     return true;
   }
 
   Future<Uint8List?> readExact(int length) async {
     if (!await _ensure(length)) return null;
-    final result =
-        Uint8List.fromList(_buffer.sublist(_offset, _offset + length));
-    _offset += length;
-    if (_offset == _buffer.length) {
-      _buffer = Uint8List(0);
-      _offset = 0;
+    final result = Uint8List(length);
+    var filled = 0;
+    while (filled < length) {
+      final chunk = _chunks.first;
+      final take = min(length - filled, chunk.length);
+      result.setRange(filled, filled + take, chunk);
+      filled += take;
+      _buffered -= take;
+      if (take == chunk.length) {
+        _chunks.removeAt(0);
+      } else {
+        _chunks[0] = chunk.sublist(take);
+      }
     }
     return result;
   }

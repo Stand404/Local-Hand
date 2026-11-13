@@ -11,9 +11,11 @@ import 'package:localhand/core/secure_channel.dart';
 
 import 'StandHttpServer.dart';
 
-/// 发送端。文件按 256 KB 分块加密，边读边发，不会把大文件读进内存。
+/// 发送端。文件按 1 MB 分块加密，读取/加密与网络写入通过双缓冲流水线重叠，
+/// 不会把大文件读进内存。
 class StandHttpClient {
   final String address;
+  final int port;
   final Uint8List key;
   final Function(String message, StandType type, String path, int size) onSent;
   final Function(double progress, int index) onProgress;
@@ -23,6 +25,7 @@ class StandHttpClient {
 
   StandHttpClient({
     required this.address,
+    this.port = transferPort,
     required this.key,
     required this.onSent,
     required this.onProgress,
@@ -62,7 +65,7 @@ class StandHttpClient {
     try {
       final worker = await _crypto();
       request = await client
-          .postUrl(Uri.parse('http://$address:$transferPort/file'))
+          .postUrl(Uri.parse('http://$address:$port/file'))
           .timeout(const Duration(seconds: 10));
       request.headers.set('x-lh-name', nameBox);
       request.headers.set('x-lh-size', size.toString());
@@ -71,24 +74,57 @@ class StandHttpClient {
       request.contentLength = totalBody;
 
       raf = await file.open();
-      var sent = 0;
-      for (var i = 0; i < chunks; i++) {
-        final length = min(fileChunkSize, size - sent);
-        final plain = await raf.read(length);
-        final encrypted = await worker.sealChunk(
-          baseNonce,
-          i,
-          plain,
-          utf8.encode('file|$i|$chunks|$nameBox'),
-        );
-        final header = Uint8List(frameHeaderLength);
-        ByteData.sublistView(header)
-            .setUint32(0, encrypted.length, Endian.big);
-        request.add(header);
-        request.add(encrypted);
-        await request.flush();
-        sent += plain.length;
-        onProgress(size == 0 ? 1 : min(1.0, sent / size), index);
+      final handle = raf;
+      final window = worker.parallelism;
+
+      Future<({int sent, List<Uint8List> frames})> encryptBatch(
+          int start) async {
+        final end = min(start + window, chunks);
+        final plains = <Uint8List>[];
+        for (var i = start; i < end; i++) {
+          final offset = i * fileChunkSize;
+          plains.add(await handle.read(min(fileChunkSize, size - offset)));
+        }
+        final frames = await Future.wait([
+          for (var k = 0; k < plains.length; k++)
+            worker.sealChunk(
+              baseNonce,
+              start + k,
+              plains[k],
+              utf8.encode('file|${start + k}|$chunks|$nameBox'),
+            ),
+        ]);
+        return (sent: min(size, end * fileChunkSize), frames: frames);
+      }
+
+      // 下一批的读取与加密提前启动，与当前批次的网络写入重叠。
+      Future<({int sent, List<Uint8List> frames})> prefetch(int start) {
+        final completer = Completer<({int sent, List<Uint8List> frames})>();
+        encryptBatch(start)
+            .then(completer.complete, onError: completer.completeError);
+        return completer.future;
+      }
+
+      var next = window;
+      var pending = chunks > 0 ? prefetch(0) : null;
+      try {
+        while (pending != null) {
+          final batch = await pending;
+          pending = next < chunks ? prefetch(next) : null;
+          next += window;
+          for (final encrypted in batch.frames) {
+            final header = Uint8List(frameHeaderLength);
+            ByteData.sublistView(header)
+                .setUint32(0, encrypted.length, Endian.big);
+            request.add(header);
+            request.add(encrypted);
+          }
+          final flushing = request.flush();
+          onProgress(size == 0 ? 1 : min(1.0, batch.sent / size), index);
+          await flushing;
+        }
+      } finally {
+        pending?.ignore();
       }
 
       final response =
@@ -120,7 +156,7 @@ class StandHttpClient {
     HttpClientRequest? request;
     try {
       request = await client
-          .postUrl(Uri.parse('http://$address:$transferPort/msg'))
+          .postUrl(Uri.parse('http://$address:$port/msg'))
           .timeout(const Duration(seconds: 10));
       request.contentLength = box.length;
       request.add(box);

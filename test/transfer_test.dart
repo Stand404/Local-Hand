@@ -17,14 +17,14 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getDownloadsPath() async => root;
 }
 
-Future<void> _waitForServer() async {
+Future<void> _waitForServer(int port) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   while (DateTime.now().isBefore(deadline)) {
     try {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 1);
       final request =
-          await client.getUrl(Uri.parse('http://127.0.0.1:65001/ping'));
+          await client.getUrl(Uri.parse('http://127.0.0.1:$port/ping'));
       final response = await request.close();
       await response.drain<void>();
       final ok = response.statusCode == HttpStatus.ok;
@@ -54,6 +54,10 @@ void main() {
     PathProviderPlatform.instance = _FakePathProvider(receiveDir.path);
 
     final key = randomBytes(32);
+    // 避免与本机正在运行的应用争用固定端口。
+    final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = probe.port;
+    await probe.close();
     final source = File('${sourceDir.path}${Platform.pathSeparator}sample.bin');
     final random = Random(42);
     final payload = Uint8List.fromList(
@@ -63,6 +67,7 @@ void main() {
     var finished = false;
     final server = StandHttpServer(
       key: key,
+      port: port,
       receiveFileCallback: (_) => 0,
       receiveFileEndCallback: (_) => finished = true,
       receiveMsgCallback: (_) {},
@@ -71,6 +76,7 @@ void main() {
     );
     final client = StandHttpClient(
       address: '127.0.0.1',
+      port: port,
       key: key,
       onSent: (message, type, path, size) => 0,
       onProgress: (_, __) {},
@@ -78,7 +84,7 @@ void main() {
     );
 
     try {
-      await _waitForServer();
+      await _waitForServer(port);
       final ok = await client.uploadFile(source.path, 'sample.bin');
       expect(ok, isTrue);
       expect(finished, isTrue);

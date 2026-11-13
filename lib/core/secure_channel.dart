@@ -22,14 +22,6 @@ Uint8List randomBytes(int length) {
   return bytes;
 }
 
-/// 生成便于口述/输入的随机配对码，去掉了容易混淆的字符。
-String randomPairingCode([int length = 8]) {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  final random = Random.secure();
-  return List.generate(
-      length, (_) => alphabet[random.nextInt(alphabet.length)]).join();
-}
-
 /// 生成 P-256 临时密钥对。
 LocalKeyPair generateKeyPair() {
   final curve = ECCurve_prime256v1();
@@ -172,12 +164,14 @@ Uint8List _deriveSubkey(Uint8List key, String label) {
 /// CTR 与 HMAC 能到 50-90 MB/s，仍保持每块 16 字节认证开销。
 Uint8List sealChunk(Uint8List key, Uint8List baseNonce, int index,
     List<int> plaintext, List<int> aad) {
+  final input =
+      plaintext is Uint8List ? plaintext : Uint8List.fromList(plaintext);
   final cipher = CTRStreamCipher(AESEngine())
     ..init(
         true,
         ParametersWithIV(
             KeyParameter(_deriveSubkey(key, 'enc')), chunkIv(baseNonce, index)));
-  final ciphertext = cipher.process(Uint8List.fromList(plaintext));
+  final ciphertext = cipher.process(input);
   final tag = _chunkTag(key, baseNonce, index, aad, ciphertext);
   final result = Uint8List(ciphertext.length + fileTagLength);
   result.setAll(0, ciphertext);
@@ -188,12 +182,13 @@ Uint8List sealChunk(Uint8List key, Uint8List baseNonce, int index,
 /// 校验认证标签后再解密；失败抛出 [FormatException]。
 Uint8List openChunk(Uint8List key, Uint8List baseNonce, int index,
     List<int> data, List<int> aad) {
-  if (data.length < fileTagLength) {
+  final bytes = data is Uint8List ? data : Uint8List.fromList(data);
+  if (bytes.length < fileTagLength) {
     throw const FormatException('加密数据不完整');
   }
-  final split = data.length - fileTagLength;
-  final ciphertext = data.sublist(0, split);
-  final tag = data.sublist(split);
+  final split = bytes.length - fileTagLength;
+  final ciphertext = Uint8List.sublistView(bytes, 0, split);
+  final tag = Uint8List.sublistView(bytes, split);
   if (!_constantTimeEquals(
       tag, _chunkTag(key, baseNonce, index, aad, ciphertext))) {
     throw const FormatException('数据校验失败');
@@ -203,22 +198,36 @@ Uint8List openChunk(Uint8List key, Uint8List baseNonce, int index,
         false,
         ParametersWithIV(
             KeyParameter(_deriveSubkey(key, 'enc')), chunkIv(baseNonce, index)));
-  return cipher.process(Uint8List.fromList(ciphertext));
+  return cipher.process(ciphertext);
 }
 
 List<int> _chunkTag(Uint8List key, Uint8List baseNonce, int index,
     List<int> aad, List<int> ciphertext) {
-  final mac = crypto.Hmac(crypto.sha256, _deriveSubkey(key, 'mac'))
-      .convert(<int>[
-    ...aad,
-    ...baseNonce,
+  final sink = _DigestSink();
+  final conversion =
+      crypto.Hmac(crypto.sha256, _deriveSubkey(key, 'mac'))
+          .startChunkedConversion(sink);
+  conversion.add(aad);
+  conversion.add(baseNonce);
+  conversion.add(<int>[
     (index >> 24) & 0xff,
     (index >> 16) & 0xff,
     (index >> 8) & 0xff,
     index & 0xff,
-    ...ciphertext,
   ]);
-  return mac.bytes.sublist(0, fileTagLength);
+  conversion.add(ciphertext);
+  conversion.close();
+  return sink.value.bytes.sublist(0, fileTagLength);
+}
+
+class _DigestSink implements Sink<crypto.Digest> {
+  late crypto.Digest value;
+
+  @override
+  void add(crypto.Digest data) => value = data;
+
+  @override
+  void close() {}
 }
 
 bool _constantTimeEquals(List<int> a, List<int> b) {

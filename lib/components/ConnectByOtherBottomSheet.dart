@@ -1,5 +1,4 @@
 // ignore_for_file: file_names
-import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -29,34 +28,32 @@ class _ConnectByOtherBottomSheet extends State<ConnectByOtherBottomSheet>
     with SingleTickerProviderStateMixin {
   static const int _totalSeconds = 60;
 
-  int _counter = _totalSeconds;
-  late final Timer _timer;
+  late final AnimationController _countdown;
   bool _finished = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      if (_counter > 0) {
-        setState(() => _counter--);
-      } else {
-        timer.cancel();
-        _finish(widget.onRefuse);
-      }
-    });
+    _countdown = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: _totalSeconds),
+    )
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) _finish(widget.onRefuse);
+      })
+      ..forward();
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _countdown.dispose();
     super.dispose();
   }
 
   void _finish(Function()? callback) {
     if (_finished) return;
     _finished = true;
-    _timer.cancel();
+    _countdown.stop();
     callback?.call();
   }
 
@@ -118,36 +115,43 @@ class _ConnectByOtherBottomSheet extends State<ConnectByOtherBottomSheet>
               SizedBox(
                 width: 132,
                 height: 132,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(
-                      size: const Size(132, 132),
-                      painter: _CountdownRingPainter(
-                        progress: _counter / _totalSeconds,
-                        color: colorScheme.primary,
-                        trackColor: colorScheme.outlineVariant
-                            .withValues(alpha: 0.45),
-                      ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
+                child: AnimatedBuilder(
+                  animation: _countdown,
+                  builder: (context, _) {
+                    final remaining =
+                        (_totalSeconds * (1 - _countdown.value)).ceil();
+                    return Stack(
+                      alignment: Alignment.center,
                       children: [
-                        Text(
-                          '$_counter',
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w600,
+                        CustomPaint(
+                          size: const Size(132, 132),
+                          painter: _CountdownRingPainter(
+                            progress: 1 - _countdown.value,
                             color: colorScheme.primary,
+                            trackColor: colorScheme.outlineVariant
+                                .withValues(alpha: 0.45),
                           ),
                         ),
-                        Text('秒',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: colorScheme.onSurfaceVariant)),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '$remaining',
+                              style: TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            Text('秒',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: colorScheme.onSurfaceVariant)),
+                          ],
+                        ),
                       ],
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 24),

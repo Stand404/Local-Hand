@@ -14,18 +14,16 @@ class IncomingConnectionRequest {
   final String name;
   final String type;
   final String publicKey;
-  final String? pairingCode;
 
   const IncomingConnectionRequest({
     required this.address,
     required this.name,
     required this.type,
     required this.publicKey,
-    this.pairingCode,
   });
 }
 
-/// 常驻控制服务：接收连接请求、扫码配对与断开通知。
+/// 常驻控制服务：接收连接请求与断开通知。
 ///
 /// 使用 TCP，而不是依赖 UDP 单播，因此不会被系统防火墙静默丢弃。
 class ControlServer {
@@ -127,7 +125,6 @@ class ControlServer {
       name: name is String ? name : '未知设备',
       type: type is String ? type : '未知',
       publicKey: publicKey,
-      pairingCode: data['code'] is String ? data['code'] as String : null,
     );
 
     final localKeys = generateKeyPair();

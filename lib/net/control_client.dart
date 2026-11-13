@@ -21,7 +21,6 @@ class ConnectOutcome {
 class ControlClient {
   static Future<ConnectOutcome> request({
     required String address,
-    String? pairingCode,
   }) async {
     final local = await loadLocalDevice();
     final keys = generateKeyPair();
@@ -39,7 +38,6 @@ class ControlClient {
         'name': local.name,
         'type': local.type,
         'publicKey': keys.publicKey,
-        if (pairingCode != null) 'code': pairingCode,
       }));
 
       final response =
@@ -85,12 +83,12 @@ class ControlClient {
       ));
     } on TimeoutException {
       return const ConnectOutcome.failure(
-          '对方未响应。请确认两台设备在同一局域网，或改用扫码配对');
+          '对方未响应。请确认两台设备在同一局域网，并检查对方是否在线');
     } on SocketException {
       return const ConnectOutcome.failure(
-          '无法连接到对方。请检查防火墙是否允许 Local Hand 通信，或改用扫码配对');
+          '无法连接到对方。请检查防火墙是否允许 Local Hand 通信');
     } catch (_) {
-      return const ConnectOutcome.failure('连接失败，请重试或改用扫码配对');
+      return const ConnectOutcome.failure('连接失败，请重试');
     } finally {
       client.close(force: true);
     }

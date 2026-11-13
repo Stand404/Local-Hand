@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// 与 MainActivity 之间的原生通道：存储权限、媒体库刷新、打开文件夹。
+/// 与 MainActivity 之间的原生通道：存储权限、媒体库刷新、打开文件/文件夹。
 class AndroidBridge {
   static const MethodChannel _channel =
       MethodChannel('com.stand.localhand/platform');
@@ -29,6 +29,20 @@ class AndroidBridge {
       });
     } catch (_) {
       // 扫描失败不影响文件本身。
+    }
+  }
+
+  /// 用系统关联应用打开文件，返回 opened / installPermission / noApp /
+  /// missing / failed。
+  static Future<String> openFile(String path) async {
+    if (!isAndroid) return 'failed';
+    try {
+      return await _channel.invokeMethod<String>('openFile', {
+            'path': path,
+          }) ??
+          'failed';
+    } catch (_) {
+      return 'failed';
     }
   }
 

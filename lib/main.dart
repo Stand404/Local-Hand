@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:localhand/core/theme_controller.dart';
 import 'package:localhand/models/friends.dart';
 import 'package:localhand/pages/home_page.dart';
 import 'package:provider/provider.dart';
 
 const Color _seedColor = Color(0xFF5F7FFF);
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(ChangeNotifierProvider(
-    create: (context) => Friends(),
+  // 调试期误触“显示基线”会让每行文字下方出现黄/绿横线，启动时强制关闭。
+  debugPaintBaselinesEnabled = false;
+  final themeController = await ThemeController.load();
+  runApp(MultiProvider(
+    providers: [
+      ChangeNotifierProvider(create: (context) => Friends()),
+      ChangeNotifierProvider.value(value: themeController),
+    ],
     child: const MyApp(),
   ));
 }
@@ -59,7 +67,7 @@ class MyApp extends StatelessWidget {
       title: 'Local Hand',
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      themeMode: context.watch<ThemeController>().mode,
       home: const HomePage(),
     );
   }

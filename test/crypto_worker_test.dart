@@ -33,4 +33,35 @@ void main() {
     );
     worker.close();
   });
+
+  test('后台 isolate 池并行处理多个分块', () async {
+    final key = Uint8List.fromList(List.generate(32, (i) => i * 13 + 1));
+    final worker = await CryptoWorker.spawn(key);
+    final baseNonce =
+        Uint8List.fromList(List.generate(fileBaseNonceLength, (i) => i + 3));
+
+    final plains = [
+      for (var i = 0; i < 16; i++)
+        Uint8List.fromList(
+            List.generate(64 * 1024, (j) => (j + i * 17) & 0xff)),
+    ];
+    final aads = [for (var i = 0; i < plains.length; i++) utf8.encode('file|$i|16|bench')];
+
+    final sealed = await Future.wait([
+      for (var i = 0; i < plains.length; i++)
+        worker.sealChunk(baseNonce, i, plains[i], aads[i]),
+    ]);
+    for (var i = 0; i < plains.length; i++) {
+      expect(sealed[i], sealChunk(key, baseNonce, i, plains[i], aads[i]));
+    }
+
+    final opened = await Future.wait([
+      for (var i = 0; i < sealed.length; i++)
+        worker.openChunk(baseNonce, i, sealed[i], aads[i]),
+    ]);
+    for (var i = 0; i < plains.length; i++) {
+      expect(opened[i], plains[i]);
+    }
+    worker.close();
+  });
 }

@@ -68,6 +68,7 @@ class _HandPageState extends State<HandPage> {
   bool _sendingFiles = false;
   bool _allowPop = false;
   bool _dragging = false;
+  DateTime _lastProgressAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -169,9 +170,16 @@ class _HandPageState extends State<HandPage> {
 
   void _updateProgress(double progress, int index) {
     if (!mounted || index < 0 || index >= _messages.length) return;
-    setState(() {
-      _messages[index].progress = progress.clamp(0.0, 1.0);
-    });
+    final value = progress.clamp(0.0, 1.0);
+    // 大文件会产生成百上千次进度回调，限流避免整页频繁重建拖慢传输；
+    // 气泡里的进度条自带补间动画，50ms 的刷新间隔足够连贯。
+    final now = DateTime.now();
+    if (value < 1 &&
+        now.difference(_lastProgressAt).inMilliseconds < 50) {
+      return;
+    }
+    _lastProgressAt = now;
+    setState(() => _messages[index].progress = value);
   }
 
   void _markFailed(int index, String error) {
@@ -312,9 +320,20 @@ class _HandPageState extends State<HandPage> {
         backgroundColor:
             Color.lerp(colorScheme.surface, colorScheme.primaryContainer, 0.12),
         appBar: AppBar(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
+          backgroundColor: colorScheme.surface,
+          foregroundColor: colorScheme.onSurface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
           titleSpacing: 4,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Divider(
+              height: 1,
+              thickness: 1,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          ),
           title: Row(
             children: [
               deviceAvatar(session.peerType, colorScheme, size: 34),
@@ -329,20 +348,24 @@ class _HandPageState extends State<HandPage> {
                           : session.peerName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
                     ),
                     Row(
                       children: [
                         Icon(Icons.lock_rounded,
                             size: 12,
-                            color: colorScheme.onPrimary.withValues(alpha: 0.8)),
+                            color: colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.9)),
                         const SizedBox(width: 4),
                         Text(
                           '端到端加密 · ${session.peerAddress}',
                           style: TextStyle(
                             fontSize: 11,
-                            color: colorScheme.onPrimary.withValues(alpha: 0.8),
+                            color: colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -464,38 +487,73 @@ class _HandPageState extends State<HandPage> {
     return Positioned.fill(
       child: IgnorePointer(
         child: ColoredBox(
-          color: colorScheme.scrim.withValues(alpha: 0.3),
+          color: colorScheme.scrim.withValues(alpha: 0.32),
           child: Center(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 46, vertical: 34),
+              width: 340,
+              padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
               decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colorScheme.primary, width: 2),
+                color: colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: colorScheme.primary.withValues(alpha: 0.35),
+                  width: 1.5,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.16),
-                    blurRadius: 32,
-                    offset: const Offset(0, 12),
+                    color: Colors.black.withValues(alpha: 0.24),
+                    blurRadius: 36,
+                    offset: const Offset(0, 14),
                   ),
                 ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.upload_file_rounded,
-                      size: 46, color: colorScheme.primary),
-                  const SizedBox(height: 14),
-                  const Text(
-                    '松开以发送文件',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.upload_file_rounded,
+                      size: 36,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 20),
+                  Text(
+                    '松开以发送文件',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Text(
                     '支持一次拖入多个文件',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '松手后开始加密传输',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.primary,
+                      ),
                     ),
                   ),
                 ],

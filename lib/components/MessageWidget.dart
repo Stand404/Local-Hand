@@ -147,13 +147,20 @@ class MessageWidget extends StatelessWidget {
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: failed ? 1 : progress.clamp(0.0, 1.0),
-                    minHeight: 4,
-                    backgroundColor:
-                        colorScheme.outlineVariant.withValues(alpha: 0.35),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      failed ? colorScheme.error : colorScheme.primary,
+                  // 分块到达时进度是台阶式跳变的，用隐式动画补间让进度条平滑推进。
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                        end: failed ? 1 : progress.clamp(0.0, 1.0)),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.linear,
+                    builder: (context, value, _) => LinearProgressIndicator(
+                      value: value,
+                      minHeight: 4,
+                      backgroundColor:
+                          colorScheme.outlineVariant.withValues(alpha: 0.35),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        failed ? colorScheme.error : colorScheme.primary,
+                      ),
                     ),
                   ),
                 ),
@@ -212,6 +219,17 @@ class MessageWidget extends StatelessWidget {
   Future<void> _openFile(BuildContext context) async {
     if (path.isEmpty || !File(path).existsSync()) {
       if (context.mounted) _snack(context, '文件不存在或已被移动');
+      return;
+    }
+    if (AndroidBridge.isAndroid) {
+      final status = await AndroidBridge.openFile(path);
+      if (!context.mounted || status == 'opened') return;
+      _snack(context, switch (status) {
+        'installPermission' => '请允许安装未知来源应用后重试',
+        'noApp' => '没有可打开该文件的应用，请先安装',
+        'missing' => '文件不存在或已被移动',
+        _ => '无法打开该文件',
+      });
       return;
     }
     final result = await OpenFile.open(path);

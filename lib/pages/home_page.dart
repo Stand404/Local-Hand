@@ -4,17 +4,16 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../components/ConnectByOtherBottomSheet.dart';
 import '../components/ConnectBySelfBottomSheet.dart';
-import '../components/qr_pair_sheet.dart';
 import '../components/device_icon.dart';
 import '../core/android_bridge.dart';
-import '../core/device_info.dart';
 import '../core/file_storage.dart';
-import '../core/protocol.dart';
-import '../core/secure_channel.dart';
+import '../core/theme_controller.dart';
 import '../models/friends.dart';
 import '../models/session.dart';
 import '../multicast.dart';
@@ -34,17 +33,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   late ControlServer _controlServer;
   final ValueNotifier<bool> _isClose = ValueNotifier(false);
 
-  String _myHost = '';
   bool _storageGranted = true;
-
   bool _inSession = false;
   String? _activePeerAddress;
   String? _connectingAddress;
   int _connectToken = 0;
   bool _waitingSheetOpen = false;
-
-  PairingInfo? _pairingInfo;
-  bool _qrSheetOpen = false;
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -66,7 +60,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
     _controlServer.start();
 
-    _refreshLocalInfo();
     _checkStorage();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _multicast.search();
@@ -85,14 +78,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkStorage();
-      _refreshLocalInfo();
     }
-  }
-
-  Future<void> _refreshLocalInfo() async {
-    final host = await _multicast.loadLocalHost();
-    if (!mounted) return;
-    setState(() => _myHost = host);
   }
 
   Future<void> _checkStorage() async {
@@ -139,7 +125,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _refreshDevices() async {
     if (!mounted) return;
     context.read<Friends>().removeStale();
-    await _refreshLocalInfo();
     await _multicast.search();
   }
 
@@ -147,22 +132,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       IncomingConnectionRequest request, HandSession session) async {
     if (_inSession || _connectingAddress != null) return false;
 
-    // 扫码配对：配对码匹配时直接接受，不再弹窗。
-    final pairing = _pairingInfo;
-    if (pairing != null &&
-        request.pairingCode != null &&
-        request.pairingCode == pairing.code) {
-      _closeQrSheet();
-      await Future.delayed(const Duration(milliseconds: 220));
-      return true;
-    }
-
     if (!mounted) return false;
-    if (mounted) {
-      context
-          .read<Friends>()
-          .addFriend(request.address, request.name, request.type);
-    }
+    context
+        .read<Friends>()
+        .addFriend(request.address, request.name, request.type);
 
     final accepted = await showModalBottomSheet<bool>(
       context: context,
@@ -186,7 +159,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       unawaited(ControlClient.close(session.peerAddress));
       return;
     }
-    _closeQrSheet();
     _inSession = true;
     _activePeerAddress = session.peerAddress;
     _isClose.value = false;
@@ -208,8 +180,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return _connectAddress(friend.address, displayName: friend.deviceName);
   }
 
-  Future<void> _connectAddress(String address,
-      {String? pairingCode, String? displayName}) async {
+  Future<void> _connectAddress(String address, {String? displayName}) async {
     if (_inSession || _connectingAddress != null) return;
     final target = address.trim();
     if (target.isEmpty) {
@@ -225,10 +196,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _showWaitingSheet(
         friend == null ? target : '$title · ${friend.deviceType} · $target');
 
-    final outcome = await ControlClient.request(
-      address: target,
-      pairingCode: pairingCode,
-    );
+    final outcome = await ControlClient.request(address: target);
 
     if (!mounted) return;
     if (token != _connectToken) {
@@ -276,50 +244,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _connectingAddress = null);
   }
 
-  Future<void> _openPairSheet() async {
-    if (_connectingAddress != null || _inSession) return;
-    if (_myHost.isEmpty) {
-      _showSnack('未获取到本机局域网 IP，请先连接 Wi-Fi 或网线');
-      return;
-    }
-    final device = await loadLocalDevice();
-    if (!mounted) return;
-    final info = PairingInfo(
-      ip: _myHost,
-      port: controlPort,
-      code: randomPairingCode(),
-      name: device.name,
-      type: device.type,
-    );
-    setState(() {
-      _pairingInfo = info;
-      _qrSheetOpen = true;
-    });
-
-    final action = await showModalBottomSheet<PairAction>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      constraints: const BoxConstraints(maxWidth: 560),
-      builder: (_) => QrPairSheet(
-        info: info,
-        canScan: Platform.isAndroid || Platform.isIOS,
-      ),
-    );
-
-    _qrSheetOpen = false;
-    if (!mounted) return;
-    setState(() => _pairingInfo = null);
-    if (action != null) {
-      await _connectAddress(action.ip, pairingCode: action.code);
+  Future<void> _openReceiveFolder() async {
+    try {
+      final dir = await receiveDirectory();
+      if (!mounted) return;
+      if (AndroidBridge.isAndroid) {
+        final opened = await AndroidBridge.openFolder(dir.path);
+        if (!opened && mounted) _showSnack('无法打开文件管理器');
+      } else {
+        final result = await OpenFile.open(dir.path);
+        if (result.type != ResultType.done && mounted) {
+          _showSnack('无法打开接收目录');
+        }
+      }
+    } catch (_) {
+      if (mounted) _showSnack('无法打开接收目录');
     }
   }
 
-  void _closeQrSheet() {
-    if (!_qrSheetOpen) return;
-    _qrSheetOpen = false;
-    if (mounted) Navigator.of(context).pop();
+  Future<void> _openGitHub() async {
+    const url = 'https://github.com/Stand404/Local-Hand';
+    try {
+      final opened =
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      if (!opened && mounted) _showSnack('无法打开浏览器，仓库地址：$url');
+    } catch (_) {
+      if (mounted) _showSnack('无法打开浏览器，仓库地址：$url');
+    }
   }
 
   void _showSnack(String message) {
@@ -372,6 +323,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildHeader(ColorScheme colorScheme) {
+    final themeMode = context.watch<ThemeController>().mode;
+    final themeIcon = switch (themeMode) {
+      ThemeMode.light => Icons.light_mode_rounded,
+      ThemeMode.dark => Icons.dark_mode_rounded,
+      ThemeMode.system => Icons.brightness_auto_rounded,
+    };
     return SliverAppBar(
       pinned: true,
       toolbarHeight: 64,
@@ -386,17 +343,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.swap_horiz_rounded,
-                  size: 22,
-                  color: colorScheme.onPrimaryContainer,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.asset(
+                  'localhand_icon.png',
+                  width: 38,
+                  height: 38,
+                  fit: BoxFit.cover,
                 ),
               ),
               const SizedBox(width: 12),
@@ -429,10 +382,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               ),
               IconButton(
-                tooltip: _isDesktop ? '配对设备' : '扫码配对',
-                onPressed: _openPairSheet,
-                icon: const Icon(Icons.qr_code_2_rounded, size: 22),
+                tooltip: '打开接收目录',
+                onPressed: _openReceiveFolder,
+                icon: const Icon(Icons.folder_open_rounded, size: 22),
                 color: colorScheme.onSurfaceVariant,
+              ),
+              PopupMenuButton<ThemeMode>(
+                tooltip: '主题',
+                position: PopupMenuPosition.under,
+                color: colorScheme.surfaceContainerHigh,
+                icon: Icon(themeIcon, size: 22),
+                iconColor: colorScheme.onSurfaceVariant,
+                onSelected: context.read<ThemeController>().setMode,
+                itemBuilder: (context) => [
+                  _themeMenuItem(ThemeMode.system, themeMode, colorScheme,
+                      Icons.brightness_auto_rounded, '跟随系统'),
+                  _themeMenuItem(ThemeMode.light, themeMode, colorScheme,
+                      Icons.light_mode_rounded, '浅色'),
+                  _themeMenuItem(ThemeMode.dark, themeMode, colorScheme,
+                      Icons.dark_mode_rounded, '深色'),
+                ],
+              ),
+              IconButton(
+                tooltip: 'GitHub 仓库',
+                onPressed: _openGitHub,
+                icon: Image.asset(
+                  'github_mark.png',
+                  width: 21,
+                  height: 21,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -481,6 +460,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             onPressed: _requestStorage,
             child: const Text('去授权'),
           ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<ThemeMode> _themeMenuItem(ThemeMode value, ThemeMode current,
+      ColorScheme colorScheme, IconData icon, String label) {
+    final selected = value == current;
+    return PopupMenuItem<ThemeMode>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 18,
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label)),
+          if (selected)
+            Icon(Icons.check_rounded, size: 18, color: colorScheme.primary),
         ],
       ),
     );
@@ -651,8 +651,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             Text(
               _isDesktop
-                  ? '确认两台设备连接同一个局域网，\n然后刷新，或输入对方 IP 进行配对'
-                  : '确认两台设备连接同一个 Wi-Fi，\n然后下拉刷新，或直接使用扫码配对',
+                  ? '确认两台设备连接同一个局域网，\n然后下拉刷新或点击重新扫描'
+                  : '确认两台设备连接同一个 Wi-Fi，\n然后下拉刷新或点击重新扫描',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,

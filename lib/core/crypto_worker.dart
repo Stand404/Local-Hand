@@ -1,15 +1,60 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'secure_channel.dart';
 
-/// 把文件分块的加密/校验计算放到常驻后台 isolate，避免大文件传输阻塞 UI。
+/// 把文件分块的加密/校验计算放到常驻后台 isolate 池，避免大文件传输阻塞 UI。
 ///
-/// 每个会话复用一个 isolate，分块请求按顺序执行；
-/// 密钥只在创建时传给后台一次。
+/// 每个会话复用一个池，分块请求可以并行执行；密钥只在创建时传给后台一次。
 class CryptoWorker {
-  CryptoWorker._(this._isolate, this._incoming, this._commands);
+  CryptoWorker._(this._links);
+
+  final List<_WorkerLink> _links;
+  var _nextLink = 0;
+
+  /// 可同时处理的加密任务数，发送/接收端据此选择流水线窗口。
+  int get parallelism => _links.length;
+
+  static Future<CryptoWorker> spawn(Uint8List key, {int? workers}) async {
+    final count = workers ?? _defaultWorkerCount();
+    final links = await Future.wait(
+        List.generate(count, (_) => _WorkerLink.spawn(key)));
+    return CryptoWorker._(links);
+  }
+
+  static int _defaultWorkerCount() {
+    final cores = Platform.numberOfProcessors;
+    return min(4, max(1, cores - 1));
+  }
+
+  Future<Uint8List> sealChunk(
+      Uint8List baseNonce, int index, Uint8List plaintext, List<int> aad) {
+    return _run(0, baseNonce, index, plaintext, aad);
+  }
+
+  Future<Uint8List> openChunk(
+      Uint8List baseNonce, int index, Uint8List encrypted, List<int> aad) {
+    return _run(1, baseNonce, index, encrypted, aad);
+  }
+
+  Future<Uint8List> _run(
+      int mode, Uint8List baseNonce, int index, Uint8List data, List<int> aad) {
+    final link = _links[_nextLink++ % _links.length];
+    return link.run(mode, baseNonce, index, data, aad);
+  }
+
+  void close() {
+    for (final link in _links) {
+      link.close();
+    }
+  }
+}
+
+class _WorkerLink {
+  _WorkerLink._(this._isolate, this._incoming, this._commands);
 
   final Isolate _isolate;
   final RawReceivePort _incoming;
@@ -18,10 +63,10 @@ class CryptoWorker {
   var _nextId = 0;
   bool _closed = false;
 
-  static Future<CryptoWorker> spawn(Uint8List key) async {
+  static Future<_WorkerLink> spawn(Uint8List key) async {
     final incoming = RawReceivePort();
     final ready = Completer<SendPort>();
-    late final CryptoWorker worker;
+    late final _WorkerLink link;
 
     incoming.handler = (message) {
       if (message is SendPort) {
@@ -30,7 +75,7 @@ class CryptoWorker {
       }
       final list = message as List<Object?>;
       final id = list[0] as int;
-      final completer = worker._pending.remove(id);
+      final completer = link._pending.remove(id);
       if (completer == null) return;
       final error = list.length > 2 ? list[2] as String? : null;
       if (error != null) {
@@ -49,21 +94,11 @@ class CryptoWorker {
       incoming.close();
       rethrow;
     }
-    worker = CryptoWorker._(isolate, incoming, commands);
-    return worker;
+    link = _WorkerLink._(isolate, incoming, commands);
+    return link;
   }
 
-  Future<Uint8List> sealChunk(
-      Uint8List baseNonce, int index, Uint8List plaintext, List<int> aad) {
-    return _run(0, baseNonce, index, plaintext, aad);
-  }
-
-  Future<Uint8List> openChunk(
-      Uint8List baseNonce, int index, Uint8List encrypted, List<int> aad) {
-    return _run(1, baseNonce, index, encrypted, aad);
-  }
-
-  Future<Uint8List> _run(int mode, Uint8List baseNonce, int index,
+  Future<Uint8List> run(int mode, Uint8List baseNonce, int index,
       Uint8List data, List<int> aad) {
     if (_closed) {
       return Future.error(StateError('crypto worker closed'));
