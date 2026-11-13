@@ -1,149 +1,283 @@
 // ignore_for_file: file_names
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:async';
-import 'package:mime/mime.dart';
-import 'package:path_provider/path_provider.dart';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:localhand/core/android_bridge.dart';
+import 'package:localhand/core/file_storage.dart';
+import 'package:localhand/core/protocol.dart';
+import 'package:localhand/core/secure_channel.dart';
 
 enum StandType { image, audio, document, video, program, other, text }
 
 class StandFile {
-  String filename;
-  String filePath;
-  StandType fileType;
+  final String filename;
+  final String filePath;
+  final StandType fileType;
+  final int size;
 
-  StandFile(this.filename, this.filePath, this.fileType);
+  StandFile(this.filename, this.filePath, this.fileType, {this.size = 0});
 }
 
+/// 接收端。所有文件与消息都使用本次会话的 AES-256-GCM 密钥解密，
+/// 校验失败的连接会被直接丢弃。
 class StandHttpServer {
-  HttpServer? _server;
-  final Function(StandFile standFile) receiveFileCallback; // 收到文件
-  final Function(int index) receiveFileEndCallback; // 收到文件
-  final Function(String message) receiveMsgCallback; // 收到消息
-  Function(double progress, int index) onUpload;
+  final Uint8List key;
+  final Function(StandFile standFile) receiveFileCallback;
+  final Function(int index) receiveFileEndCallback;
+  final Function(String message) receiveMsgCallback;
+  final Function(double progress, int index) onProgress;
+  final Function(int index, String error)? onReceiveError;
 
-  StandHttpServer(this.receiveFileCallback, this.receiveFileEndCallback,
-      this.receiveMsgCallback, this.onUpload) {
+  HttpServer? _server;
+
+  StandHttpServer({
+    required this.key,
+    required this.receiveFileCallback,
+    required this.receiveFileEndCallback,
+    required this.receiveMsgCallback,
+    required this.onProgress,
+    this.onReceiveError,
+  }) {
     startServer();
   }
 
-  void startServer() {
-    // print("Start Http");
-    HttpServer.bind(InternetAddress("0.0.0.0"), 65001, shared: true)
-        .then((server) {
-      _server = server;
-      server.listen((HttpRequest request) async {
-        if (request.method == 'POST') {
-          // 处理文件上传
-          if (request.uri.path == '/upload') {
-            await handleFileUpload(request);
-          } else if (request.uri.path == '/sendmsg') {
-            handleMessage(request);
-          }
-        } else {
-          request.response.write("Hello!");
-        }
-        await request.response.close();
-      });
-    });
-  }
-
-  /// 关闭HTTP服务器
-  void closeServer() {
-    _server?.close();
-  }
-
-  // 收到消息
-  void handleMessage(HttpRequest request) async {
+  Future<void> startServer() async {
     try {
-      // 读取请求体数据
-      final content = await utf8.decoder.bind(request).join();
-      receiveMsgCallback(content);
-
-      // 回应客户端
-      // request.response
-      //     ..statusCode = HttpStatus.ok
-      //     ..write('successfully!');
-    } catch (e) {
-      print('Error: $e');
+      final server = await HttpServer.bind(
+        InternetAddress.anyIPv4,
+        transferPort,
+        shared: true,
+      );
+      _server = server;
+      server.listen(_handle);
+    } on SocketException {
+      // 端口被占用时等待下一个会话重新绑定。
     }
-    await request.response.close();
   }
 
-  Future<void> handleFileUpload(HttpRequest request) async {
-    if (!request.headers.contentType!.mimeType
-        .startsWith('multipart/form-data')) {
-      request.response
-        ..statusCode = HttpStatus.badRequest
-        ..write('Unsupported content type');
-      await request.response.close();
+  void closeServer() {
+    _server?.close(force: true);
+    _server = null;
+  }
+
+  Future<void> _handle(HttpRequest request) async {
+    try {
+      if (request.method == 'GET' && request.uri.path == '/ping') {
+        request.response.write('localhand');
+        await request.response.close();
+        return;
+      }
+      if (request.method != 'POST') {
+        await _respond(request, HttpStatus.methodNotAllowed, {'ok': false});
+        return;
+      }
+
+      switch (request.uri.path) {
+        case '/msg':
+          await _handleMessage(request);
+          break;
+        case '/file':
+          await _handleFile(request);
+          break;
+        default:
+          await _respond(request, HttpStatus.notFound, {'ok': false});
+      }
+    } catch (_) {
+      try {
+        await _respond(
+            request, HttpStatus.badRequest, {'ok': false, 'reason': 'error'});
+      } catch (_) {
+        // 连接已断开。
+      }
+    }
+  }
+
+  Future<void> _handleMessage(HttpRequest request) async {
+    final body = await _readAll(request, 2 * 1024 * 1024);
+    String message;
+    try {
+      message = utf8.decode(
+          openBytes(key, body, aad: utf8.encode('msg')));
+    } catch (_) {
+      await _respond(
+          request, HttpStatus.badRequest, {'ok': false, 'reason': 'invalid'});
+      return;
+    }
+    receiveMsgCallback(message);
+    await _respond(request, HttpStatus.ok, {'ok': true});
+  }
+
+  Future<void> _handleFile(HttpRequest request) async {
+    final nameBox = request.headers.value('x-lh-name');
+    final sizeHeader = request.headers.value('x-lh-size');
+    final chunksHeader = request.headers.value('x-lh-chunks');
+    final nonceHeader = request.headers.value('x-lh-nonce');
+    if (nameBox == null ||
+        sizeHeader == null ||
+        chunksHeader == null ||
+        nonceHeader == null) {
+      await _respond(
+          request, HttpStatus.badRequest, {'ok': false, 'reason': 'headers'});
       return;
     }
 
-    // 解析多部分请求
-    final boundary = request.headers.contentType!.parameters['boundary']!;
-    final transformer = MimeMultipartTransformer(boundary);
-    final bodyStream = request.cast<List<int>>().transform(transformer);
-
-    int totalBytes = request.contentLength;
-    int receivedBytes = 0;
-    int index = 0;
-    bool isStart = false;
-
-    await for (final part in bodyStream) {
-      final contentDisposition = part.headers['content-disposition'];
-
-      if (contentDisposition != null &&
-          contentDisposition.contains('filename=')) {
-        String filename = "";
-        filename = RegExp(r'filename="([^"]+)"')
-            .firstMatch(contentDisposition)!
-            .group(1)!;
-
-        // final directory = Directory.current;
-        final Directory? downloadsDir = await getDownloadsDirectory();
-        // final getfilesDir = Directory('${downloadsDir?.path}/loaclhand');
-        // print(getfilesDir.path);
-
-        String filePath = '${downloadsDir?.path}/$filename';
-        if (Platform.isAndroid) {
-          filePath = await _getFilePath(filename);
-        }
-
-        if (!isStart) {
-          index = receiveFileCallback(
-              StandFile(filename, filePath, getFileType(filename)));
-          isStart = true;
-        }
-
-        final file = File(filePath);
-        final sink = file.openWrite();
-
-        await for (var data in part) {
-          sink.add(data);
-          receivedBytes += data.length;
-          double progress = (receivedBytes / totalBytes);
-          onUpload(progress, index); //更新进度
-          // print('Progress: $progress%');
-        }
-
-        await sink.close();
-
-        receiveFileEndCallback(index); //进度条完
-
-        request.response
-          ..statusCode = HttpStatus.ok
-          ..write('File "$filename" uploaded successfully!');
-        await request.response.close();
-
-        return;
+    String filename;
+    int totalSize;
+    int totalChunks;
+    Uint8List baseNonce;
+    try {
+      filename = utf8.decode(
+          openBytes(key, base64Decode(nameBox), aad: utf8.encode('name')));
+      totalSize = int.parse(sizeHeader);
+      totalChunks = int.parse(chunksHeader);
+      baseNonce = base64Decode(nonceHeader);
+      if (totalSize < 0 || totalChunks < 1 ||
+          baseNonce.length != fileBaseNonceLength) {
+        throw const FormatException();
       }
+      final expectedChunks =
+          max(1, (totalSize + fileChunkSize - 1) ~/ fileChunkSize);
+      if (totalChunks != expectedChunks) throw const FormatException();
+    } catch (_) {
+      await _respond(
+          request, HttpStatus.badRequest, {'ok': false, 'reason': 'metadata'});
+      return;
     }
 
-    request.response
-      ..statusCode = HttpStatus.badRequest
-      ..write('No file uploaded');
-    await request.response.close();
+    final directory = await receiveDirectory();
+    final target = uniqueFile(directory, sanitizeFileName(filename));
+    final partFile = File('${target.path}.part');
+    final index = receiveFileCallback(StandFile(
+      sanitizeFileName(filename),
+      target.path,
+      getFileType(filename),
+      size: totalSize,
+    ));
+
+    final sink = partFile.openWrite();
+    final reader = _BodyReader(request);
+    var received = 0;
+    var frames = 0;
+    var sinkClosed = false;
+
+    try {
+      for (var i = 0; i < totalChunks; i++) {
+        final header = await reader.readExact(frameHeaderLength);
+        if (header == null) throw const FormatException('missing frame header');
+        final length =
+            ByteData.sublistView(header).getUint32(0, Endian.big);
+        if (length < gcmTagLength || length > fileChunkSize + gcmTagLength) {
+          throw const FormatException('invalid frame length');
+        }
+        final encrypted = await reader.readExact(length);
+        if (encrypted == null) throw const FormatException('missing frame');
+        final aad = utf8.encode('file|$i|$totalChunks|$nameBox');
+        final plain = openWithNonce(
+            key, chunkNonce(baseNonce, i), encrypted, aad);
+        sink.add(plain);
+        received += plain.length;
+        frames++;
+        onProgress(
+            totalSize == 0 ? 1 : min(1.0, received / totalSize), index);
+      }
+
+      await reader.close();
+      await sink.flush();
+      await sink.close();
+      sinkClosed = true;
+
+      if (frames != totalChunks || received != totalSize) {
+        throw const FormatException('incomplete file');
+      }
+      if (await partFile.exists()) {
+        await partFile.rename(target.path);
+      }
+    } catch (_) {
+      if (!sinkClosed) {
+        try {
+          await sink.close();
+        } catch (_) {}
+      }
+      try {
+        if (await partFile.exists()) await partFile.delete();
+      } catch (_) {}
+      onReceiveError?.call(index, '接收失败，数据校验未通过');
+      await _respond(
+          request, HttpStatus.badRequest, {'ok': false, 'reason': 'checksum'});
+      return;
+    }
+
+    receiveFileEndCallback(index);
+    unawaited(AndroidBridge.scanFile(target.path));
+    await _respond(request, HttpStatus.ok, {'ok': true});
+  }
+
+  Future<List<int>> _readAll(HttpRequest request, int maxBytes) async {
+    final builder = BytesBuilder(copy: false);
+    var total = 0;
+    await for (final chunk in request) {
+      total += chunk.length;
+      if (total > maxBytes) throw const FormatException('body too large');
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
+  }
+
+  Future<void> _respond(
+      HttpRequest request, int statusCode, Map<String, dynamic> body) async {
+    final response = request.response;
+    response.statusCode = statusCode;
+    response.headers.contentType = ContentType.json;
+    response.write(jsonEncode(body));
+    await response.close();
+  }
+}
+
+/// 按帧读取 HTTP 请求体，避免把整个文件读入内存。
+class _BodyReader {
+  final StreamIterator<List<int>> _iterator;
+  Uint8List _buffer = Uint8List(0);
+  int _offset = 0;
+  bool _closed = false;
+
+  _BodyReader(Stream<List<int>> stream) : _iterator = StreamIterator(stream);
+
+  Future<bool> _ensure(int length) async {
+    while (_buffer.length - _offset < length) {
+      if (_closed || !await _iterator.moveNext()) {
+        _closed = true;
+        return false;
+      }
+      final chunk = _iterator.current;
+      final remaining = _buffer.length - _offset;
+      final merged = Uint8List(remaining + chunk.length);
+      merged.setAll(0, _buffer.sublist(_offset));
+      merged.setAll(remaining, chunk);
+      _buffer = merged;
+      _offset = 0;
+    }
+    return true;
+  }
+
+  Future<Uint8List?> readExact(int length) async {
+    if (!await _ensure(length)) return null;
+    final result =
+        Uint8List.fromList(_buffer.sublist(_offset, _offset + length));
+    _offset += length;
+    if (_offset == _buffer.length) {
+      _buffer = Uint8List(0);
+      _offset = 0;
+    }
+    return result;
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _iterator.cancel();
   }
 }
 
@@ -156,6 +290,7 @@ StandType getFileType(String filename) {
     case 'png':
     case 'gif':
     case 'bmp':
+    case 'webp':
       return StandType.image;
     case 'mp3':
     case 'wav':
@@ -184,13 +319,4 @@ StandType getFileType(String filename) {
     default:
       return StandType.other;
   }
-}
-
-Future<String> _getFilePath(String fileName) async {
-  var dir = Directory('/storage/emulated/0/Download/LocalHand');
-  if (!dir.existsSync()) {
-    dir.createSync(recursive: true);
-  }
-  print("File Name: ${dir.path}/$fileName");
-  return "${dir.path}/$fileName";
 }

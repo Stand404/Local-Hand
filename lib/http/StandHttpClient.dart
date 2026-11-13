@@ -1,56 +1,132 @@
 // ignore_for_file: file_names
-import 'package:dio/dio.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:localhand/core/protocol.dart';
+import 'package:localhand/core/secure_channel.dart';
+
 import 'StandHttpServer.dart';
 
+/// 发送端。文件按 256 KB 分块加密，边读边发，不会把大文件读进内存。
 class StandHttpClient {
   final String address;
-  Function(String message, StandType type, String path) sendSucess;
-  Function(double progress, int index) onUpload;
+  final Uint8List key;
+  final Function(String message, StandType type, String path, int size) onSent;
+  final Function(double progress, int index) onProgress;
+  final Function(int index, String error)? onSendError;
 
-  late String fileURL, msgURL;
-  StandHttpClient(this.address, this.sendSucess, this.onUpload) {
-    fileURL = "http://$address:65001/upload";
-    msgURL = "http://$address:65001/sendmsg";
-  }
+  StandHttpClient({
+    required this.address,
+    required this.key,
+    required this.onSent,
+    required this.onProgress,
+    this.onSendError,
+  });
 
-  Future<void> uploadFile(String filePath, String filename) async {
-    Dio dio = Dio();
+  Future<bool> uploadFile(String filePath, String filename) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      final index = onSent(filename, getFileType(filename), filePath, 0);
+      onSendError?.call(index, '文件不存在');
+      return false;
+    }
+
+    final size = await file.length();
+    final chunks = max(1, (size + fileChunkSize - 1) ~/ fileChunkSize);
+    final baseNonce = randomBytes(fileBaseNonceLength);
+    final nameBox = base64Encode(
+        sealBytes(key, utf8.encode(filename), aad: utf8.encode('name')));
+    final totalBody = size + chunks * (gcmTagLength + frameHeaderLength);
+    final index = onSent(filename, getFileType(filename), filePath, size);
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..idleTimeout = const Duration(seconds: 30);
+    HttpClientRequest? request;
+    RandomAccessFile? raf;
+
     try {
-      int index = sendSucess(filename, getFileType(filePath), filePath);
-      FormData formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(filePath, filename: filename),
-      });
+      request = await client
+          .postUrl(Uri.parse('http://$address:$transferPort/file'))
+          .timeout(const Duration(seconds: 10));
+      request.headers.set('x-lh-name', nameBox);
+      request.headers.set('x-lh-size', size.toString());
+      request.headers.set('x-lh-chunks', chunks.toString());
+      request.headers.set('x-lh-nonce', base64Encode(baseNonce));
+      request.contentLength = totalBody;
 
-      // ignore: unused_local_variable
-      var response = await dio.post(
-        fileURL,
-        data: formData,
-        onSendProgress: (int sent, int total) {
-          double progress = (sent / total) ;
-          // print('Progress: $progress%');
-          onUpload(progress, index); //显示进度
-        },
-      );
+      raf = await file.open();
+      var sent = 0;
+      for (var i = 0; i < chunks; i++) {
+        final length = min(fileChunkSize, size - sent);
+        final plain = await raf.read(length);
+        final encrypted = sealWithNonce(
+          key,
+          chunkNonce(baseNonce, i),
+          plain,
+          utf8.encode('file|$i|$chunks|$nameBox'),
+        );
+        final header = Uint8List(frameHeaderLength);
+        ByteData.sublistView(header)
+            .setUint32(0, encrypted.length, Endian.big);
+        request.add(header);
+        request.add(encrypted);
+        await request.flush();
+        sent += plain.length;
+        onProgress(size == 0 ? 1 : min(1.0, sent / size), index);
+      }
 
-    } catch (e) {
-      print('错误: $e');
+      final response =
+          await request.close().timeout(const Duration(seconds: 30));
+      await response.drain<void>().timeout(const Duration(seconds: 10));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('server returned ${response.statusCode}');
+      }
+      return true;
+    } catch (_) {
+      try {
+        request?.abort();
+      } catch (_) {}
+      onSendError?.call(index, '发送失败，请检查连接');
+      return false;
+    } finally {
+      try {
+        await raf?.close();
+      } catch (_) {}
+      client.close(force: true);
     }
   }
 
-  void sendMsg(String msg) async {
-    // print(msg);
-    Dio dio = Dio();
-
+  Future<bool> sendMsg(String msg) async {
+    final index = onSent(msg, StandType.text, '', 0);
+    final box = sealBytes(key, utf8.encode(msg), aad: utf8.encode('msg'));
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8);
+    HttpClientRequest? request;
     try {
-      // ignore: unused_local_variable
-      var res = await dio.post(
-        msgURL,
-        data: msg,
-      );
-
-      sendSucess(msg, StandType.text, " ");
-    } catch (e) {
-      print('错误: $e');
+      request = await client
+          .postUrl(Uri.parse('http://$address:$transferPort/msg'))
+          .timeout(const Duration(seconds: 10));
+      request.contentLength = box.length;
+      request.add(box);
+      final response =
+          await request.close().timeout(const Duration(seconds: 15));
+      await response.drain<void>().timeout(const Duration(seconds: 5));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('server returned ${response.statusCode}');
+      }
+      return true;
+    } catch (_) {
+      try {
+        request?.abort();
+      } catch (_) {}
+      onSendError?.call(index, '消息发送失败');
+      return false;
+    } finally {
+      client.close(force: true);
     }
   }
 }

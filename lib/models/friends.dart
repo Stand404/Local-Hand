@@ -4,22 +4,50 @@ class Friend {
   String address;
   String deviceName;
   String deviceType;
+  DateTime lastSeen;
 
-  Friend(this.address, this.deviceName, this.deviceType);
+  Friend(this.address, this.deviceName, this.deviceType,
+      {DateTime? lastSeen})
+      : lastSeen = lastSeen ?? DateTime.now();
 }
 
 class Friends extends ChangeNotifier {
-  // 将列表转换为字典
-  Map<String, Friend> friendsMap = {};
+  final Map<String, Friend> friendsMap = {};
 
   List<Friend> get friends {
-    return friendsMap.values.toList();
+    final list = friendsMap.values.toList();
+    list.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+    return list;
   }
 
   void addFriend(String address, String deviceName, String deviceType) {
-    var newFriend = Friend(address, deviceName, deviceType);
-    if(!friendsMap.containsKey(address)) friendsMap[address] = newFriend;
-    notifyListeners(); // 通知监听器
+    final existing = friendsMap[address];
+    if (existing == null) {
+      friendsMap[address] =
+          Friend(address, deviceName, deviceType, lastSeen: DateTime.now());
+      notifyListeners();
+      return;
+    }
+    final changed =
+        existing.deviceName != deviceName || existing.deviceType != deviceType;
+    existing.deviceName = deviceName;
+    existing.deviceType = deviceType;
+    existing.lastSeen = DateTime.now();
+    if (changed) notifyListeners();
+  }
+
+  /// 刷新设备列表前清理长时间未响应的设备。
+  void removeStale({Duration maxAge = const Duration(seconds: 20)}) {
+    final now = DateTime.now();
+    final stale = friendsMap.entries
+        .where((entry) => now.difference(entry.value.lastSeen) > maxAge)
+        .map((entry) => entry.key)
+        .toList();
+    if (stale.isEmpty) return;
+    for (final address in stale) {
+      friendsMap.remove(address);
+    }
+    notifyListeners();
   }
 
   Friend? getFriendByAddress(String address) => friendsMap[address];
@@ -27,9 +55,5 @@ class Friends extends ChangeNotifier {
 
 enum FriendMsgType {
   // ignore: constant_identifier_names
-  agree,
-  refuse,
   message,
-  connect,
-  close
 }
