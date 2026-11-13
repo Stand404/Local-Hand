@@ -127,7 +127,7 @@ class _ConnectByOtherBottomSheet extends State<ConnectByOtherBottomSheet>
                         progress: _counter / _totalSeconds,
                         color: colorScheme.primary,
                         trackColor: colorScheme.outlineVariant
-                            .withOpacity(0.45),
+                            .withValues(alpha: 0.45),
                       ),
                     ),
                     Column(
@@ -160,7 +160,7 @@ class _ConnectByOtherBottomSheet extends State<ConnectByOtherBottomSheet>
                         minimumSize: const Size.fromHeight(48),
                         foregroundColor: colorScheme.error,
                         side: BorderSide(
-                            color: colorScheme.error.withOpacity(0.35)),
+                            color: colorScheme.error.withValues(alpha: 0.35)),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),

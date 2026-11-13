@@ -51,7 +51,7 @@ class MessageWidget extends StatelessWidget {
             border: mine
                 ? null
                 : Border.all(
-                    color: colorScheme.outlineVariant.withOpacity(0.4)),
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.4)),
           ),
           child: Text(
             message,
@@ -78,13 +78,13 @@ class MessageWidget extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: mine
-                ? colorScheme.primaryContainer.withOpacity(0.7)
+                ? colorScheme.primaryContainer.withValues(alpha: 0.7)
                 : colorScheme.surface,
             borderRadius: _bubbleRadius(mine),
             border: Border.all(
               color: mine
-                  ? colorScheme.primary.withOpacity(0.16)
-                  : colorScheme.outlineVariant.withOpacity(0.4),
+                  ? colorScheme.primary.withValues(alpha: 0.16)
+                  : colorScheme.outlineVariant.withValues(alpha: 0.4),
             ),
           ),
           child: Column(
@@ -151,7 +151,7 @@ class MessageWidget extends StatelessWidget {
                     value: failed ? 1 : progress.clamp(0.0, 1.0),
                     minHeight: 4,
                     backgroundColor:
-                        colorScheme.outlineVariant.withOpacity(0.35),
+                        colorScheme.outlineVariant.withValues(alpha: 0.35),
                     valueColor: AlwaysStoppedAnimation<Color>(
                       failed ? colorScheme.error : colorScheme.primary,
                     ),
@@ -188,7 +188,7 @@ class MessageWidget extends StatelessWidget {
       width: 38,
       height: 38,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Icon(icon, size: 21, color: color),

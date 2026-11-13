@@ -94,7 +94,7 @@ class _CountdownBottomSheetState extends State<CountdownBottomSheet>
                             : _counter / widget.totalSeconds,
                         color: colorScheme.primary,
                         trackColor:
-                            colorScheme.outlineVariant.withOpacity(0.45),
+                            colorScheme.outlineVariant.withValues(alpha: 0.45),
                       ),
                     ),
                     Column(
@@ -133,7 +133,7 @@ class _CountdownBottomSheetState extends State<CountdownBottomSheet>
                 '若对方长时间没有响应，可以改用扫码配对',
                 style: TextStyle(
                     fontSize: 12,
-                    color: colorScheme.onSurfaceVariant.withOpacity(0.8)),
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8)),
               ),
               const SizedBox(height: 18),
               OutlinedButton.icon(
@@ -142,7 +142,7 @@ class _CountdownBottomSheetState extends State<CountdownBottomSheet>
                   minimumSize: const Size.fromHeight(48),
                   foregroundColor: colorScheme.error,
                   side:
-                      BorderSide(color: colorScheme.error.withOpacity(0.35)),
+                      BorderSide(color: colorScheme.error.withValues(alpha: 0.35)),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),

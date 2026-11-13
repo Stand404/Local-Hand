@@ -415,12 +415,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               Positioned(
                 right: -40,
                 top: 10,
-                child: _decorCircle(160, Colors.white.withOpacity(0.06)),
+                child: _decorCircle(160, Colors.white.withValues(alpha: 0.06)),
               ),
               Positioned(
                 right: 60,
                 bottom: 10,
-                child: _decorCircle(90, Colors.white.withOpacity(0.05)),
+                child: _decorCircle(90, Colors.white.withValues(alpha: 0.05)),
               ),
               SafeArea(
                 bottom: false,
@@ -433,7 +433,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         '局域网文件与消息传输',
                         style: TextStyle(
                           fontSize: 14,
-                          color: colorScheme.onPrimary.withOpacity(0.82),
+                          color: colorScheme.onPrimary.withValues(alpha: 0.82),
                         ),
                       ),
                       const Spacer(),
@@ -473,7 +473,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.16),
+        color: Colors.white.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -499,7 +499,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withOpacity(0.55),
+        color: colorScheme.primaryContainer.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -604,7 +604,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: colorScheme.outlineVariant.withOpacity(0.4),
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
                 ),
               ),
               child: Row(
@@ -680,7 +680,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   end: Alignment.bottomRight,
                   colors: [
                     colorScheme.primaryContainer,
-                    colorScheme.tertiaryContainer.withOpacity(0.7),
+                    colorScheme.tertiaryContainer.withValues(alpha: 0.7),
                   ],
                 ),
                 shape: BoxShape.circle,

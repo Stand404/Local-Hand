@@ -39,7 +39,7 @@ Widget deviceAvatar(String deviceType, ColorScheme colorScheme,
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: color.withOpacity(0.14),
+      color: color.withValues(alpha: 0.14),
       shape: BoxShape.circle,
     ),
     alignment: Alignment.center,

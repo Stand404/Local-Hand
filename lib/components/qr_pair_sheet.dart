@@ -129,7 +129,7 @@ class _MyQrTabState extends State<_MyQrTab> {
               borderRadius: BorderRadius.circular(22),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: 0.08),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -185,7 +185,7 @@ class _MyQrTabState extends State<_MyQrTab> {
                     isDense: true,
                     filled: true,
                     fillColor: colorScheme.surfaceContainerHighest
-                        .withOpacity(0.5),
+                        .withValues(alpha: 0.5),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -289,7 +289,7 @@ class _ScanTabState extends State<_ScanTab> {
                     child: Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: colorScheme.primary.withOpacity(0.9),
+                          color: colorScheme.primary.withValues(alpha: 0.9),
                           width: 3,
                         ),
                         borderRadius: BorderRadius.circular(24),

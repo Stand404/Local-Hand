@@ -335,13 +335,13 @@ class _HandPageState extends State<HandPage> {
                       children: [
                         Icon(Icons.lock_rounded,
                             size: 12,
-                            color: colorScheme.onPrimary.withOpacity(0.8)),
+                            color: colorScheme.onPrimary.withValues(alpha: 0.8)),
                         const SizedBox(width: 4),
                         Text(
                           '端到端加密 · ${session.peerAddress}',
                           style: TextStyle(
                             fontSize: 11,
-                            color: colorScheme.onPrimary.withOpacity(0.8),
+                            color: colorScheme.onPrimary.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -387,7 +387,7 @@ class _HandPageState extends State<HandPage> {
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: colorScheme.onSurfaceVariant
-                                          .withOpacity(0.7),
+                                          .withValues(alpha: 0.7),
                                     ),
                                   ),
                                 ),
@@ -463,7 +463,7 @@ class _HandPageState extends State<HandPage> {
     return Positioned.fill(
       child: IgnorePointer(
         child: ColoredBox(
-          color: colorScheme.scrim.withOpacity(0.3),
+          color: colorScheme.scrim.withValues(alpha: 0.3),
           child: Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 46, vertical: 34),
@@ -473,7 +473,7 @@ class _HandPageState extends State<HandPage> {
                 border: Border.all(color: colorScheme.primary, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.16),
+                    color: Colors.black.withValues(alpha: 0.16),
                     blurRadius: 32,
                     offset: const Offset(0, 12),
                   ),
@@ -517,7 +517,7 @@ class _HandPageState extends State<HandPage> {
               width: 84,
               height: 84,
               decoration: BoxDecoration(
-                color: colorScheme.primary.withOpacity(0.1),
+                color: colorScheme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.lock_rounded,
@@ -546,7 +546,7 @@ class _HandPageState extends State<HandPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.08),
+                  color: colorScheme.primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -579,7 +579,7 @@ class _HandPageState extends State<HandPage> {
       margin: const EdgeInsets.fromLTRB(14, 0, 14, 6),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: colorScheme.errorContainer.withOpacity(0.6),
+        color: colorScheme.errorContainer.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -605,10 +605,10 @@ class _HandPageState extends State<HandPage> {
           color: colorScheme.surface,
           borderRadius: BorderRadius.circular(26),
           border:
-              Border.all(color: colorScheme.outlineVariant.withOpacity(0.45)),
+              Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.45)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 14,
               offset: const Offset(0, 4),
             ),
@@ -655,7 +655,7 @@ class _HandPageState extends State<HandPage> {
               style: IconButton.styleFrom(
                 backgroundColor: colorScheme.primary,
                 disabledBackgroundColor:
-                    colorScheme.outlineVariant.withOpacity(0.4),
+                    colorScheme.outlineVariant.withValues(alpha: 0.4),
               ),
               icon: const Icon(Icons.arrow_upward_rounded, size: 20),
             ),
