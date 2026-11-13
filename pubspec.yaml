@@ -45,6 +45,11 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # 桌面拖放。上游 Android 模块要求 Kotlin 2.2/AGP 8，与当前 Android 构建链不兼容，
+  # 因此使用仅保留桌面平台的本地副本。
+  desktop_drop:
+    path: third_party/desktop_drop
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

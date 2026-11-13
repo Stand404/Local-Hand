@@ -46,6 +46,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   PairingInfo? _pairingInfo;
   bool _qrSheetOpen = false;
 
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
   @override
   void initState() {
     super.initState();
@@ -162,6 +165,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
       builder: (sheetContext) => ConnectByOtherBottomSheet(
         request: request,
         onRefuse: () => Navigator.of(sheetContext).pop(false),
@@ -184,8 +188,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     Navigator.of(context)
         .push(CupertinoPageRoute(
-          builder: (_) => HandPage(session: session, isClose: _isClose),
-        ))
+      builder: (_) => HandPage(session: session, isClose: _isClose),
+    ))
         .then((_) {
       if (!mounted) return;
       _inSession = false;
@@ -212,9 +216,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _connectingAddress = target);
 
     final friend = context.read<Friends>().getFriendByAddress(target);
-    final title = displayName ??
-        friend?.deviceName ??
-        (target);
+    final title = displayName ?? friend?.deviceName ?? (target);
     _showWaitingSheet(
         friend == null ? target : '$title · ${friend.deviceType} · $target');
 
@@ -247,6 +249,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
       builder: (_) => CountdownBottomSheet(
         peerTitle: peerTitle,
         onCancel: _cancelConnect,
@@ -292,6 +295,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 560),
       builder: (_) => QrPairSheet(
         info: info,
         canScan: Platform.isAndroid || Platform.isIOS,
@@ -332,8 +336,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         backgroundColor: colorScheme.surface,
         floatingActionButton: FloatingActionButton.extended(
           onPressed: _openPairSheet,
-          icon: const Icon(Icons.qr_code_scanner_rounded),
-          label: const Text('扫码配对'),
+          icon: Icon(_isDesktop
+              ? Icons.qr_code_2_rounded
+              : Icons.qr_code_scanner_rounded),
+          label: Text(_isDesktop ? '配对设备' : '扫码配对'),
         ),
         body: RefreshIndicator(
           edgeOffset: 140,
@@ -386,7 +392,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           icon: const Icon(Icons.refresh_rounded),
         ),
         IconButton(
-          tooltip: '扫码配对',
+          tooltip: _isDesktop ? '配对设备' : '扫码配对',
           onPressed: _openPairSheet,
           icon: const Icon(Icons.qr_code_2_rounded),
         ),
@@ -526,41 +532,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildSectionHeader(ColorScheme colorScheme, int count) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 12, 6),
-      child: Row(
-        children: [
-          Text(
-            '附近设备',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              '$count',
+    return _centered(
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 12, 6),
+        child: Row(
+          children: [
+            Text(
+              '附近设备',
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onPrimaryContainer,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: colorScheme.onSurface,
               ),
             ),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: _refreshDevices,
-            icon: const Icon(Icons.sync_rounded, size: 18),
-            label: const Text('刷新'),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _refreshDevices,
+              icon: const Icon(Icons.sync_rounded, size: 18),
+              label: const Text('刷新'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _centered(Widget child) {
+    if (!_isDesktop) return child;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: child,
       ),
     );
   }
@@ -570,71 +588,75 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final connecting = _connectingAddress == friend.address;
     final disabled = _inSession || _connectingAddress != null;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Material(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          onTap: disabled ? null : () => _connectDevice(friend),
+    return _centered(
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+        child: Material(
+          color: colorScheme.surface,
           borderRadius: BorderRadius.circular(18),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: colorScheme.outlineVariant.withOpacity(0.4),
-              ),
-            ),
-            child: Row(
-              children: [
-                deviceAvatar(friend.deviceType, colorScheme),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        friend.deviceName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${friend.deviceType} · ${friend.address}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
+          child: InkWell(
+            onTap: disabled ? null : () => _connectDevice(friend),
+            borderRadius: BorderRadius.circular(18),
+            mouseCursor:
+                disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: colorScheme.outlineVariant.withOpacity(0.4),
                 ),
-                const SizedBox(width: 10),
-                if (connecting)
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
-                  )
-                else
-                  FilledButton.tonal(
-                    onPressed: disabled ? null : () => _connectDevice(friend),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+              ),
+              child: Row(
+                children: [
+                  deviceAvatar(friend.deviceType, colorScheme),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          friend.deviceName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${friend.deviceType} · ${friend.address}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Text('连接'),
                   ),
-              ],
+                  const SizedBox(width: 10),
+                  if (connecting)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    )
+                  else
+                    FilledButton.tonal(
+                      onPressed: disabled ? null : () => _connectDevice(friend),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('连接'),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -673,7 +695,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 8),
             Text(
-              '确认两台设备连接同一个 Wi-Fi，\n然后下拉刷新，或直接使用扫码配对',
+              _isDesktop
+                  ? '确认两台设备连接同一个局域网，\n然后刷新，或输入对方 IP 进行配对'
+                  : '确认两台设备连接同一个 Wi-Fi，\n然后下拉刷新，或直接使用扫码配对',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,

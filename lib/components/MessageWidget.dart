@@ -39,7 +39,10 @@ class MessageWidget extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     if (type == StandType.text) {
       return GestureDetector(
-        onLongPressStart: (details) => _onLongPress(context, details),
+        onLongPressStart: (details) =>
+            _showMenu(context, details.globalPosition),
+        onSecondaryTapUp: (details) =>
+            _showMenu(context, details.globalPosition),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
@@ -62,101 +65,108 @@ class MessageWidget extends StatelessWidget {
       );
     }
 
-    return GestureDetector(
-      onLongPressStart: (details) => _onLongPress(context, details),
-      onTap: _completed ? () => _openFile(context) : null,
-      child: Container(
-        width: 272,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: mine
-              ? colorScheme.primaryContainer.withOpacity(0.7)
-              : colorScheme.surface,
-          borderRadius: _bubbleRadius(mine),
-          border: Border.all(
+    return MouseRegion(
+      cursor: _completed ? SystemMouseCursors.click : MouseCursor.defer,
+      child: GestureDetector(
+        onLongPressStart: (details) =>
+            _showMenu(context, details.globalPosition),
+        onSecondaryTapUp: (details) =>
+            _showMenu(context, details.globalPosition),
+        onTap: _completed ? () => _openFile(context) : null,
+        child: Container(
+          width: 272,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
             color: mine
-                ? colorScheme.primary.withOpacity(0.16)
-                : colorScheme.outlineVariant.withOpacity(0.4),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (type == StandType.image &&
-                _completed &&
-                File(path).existsSync()) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.file(
-                  File(path),
-                  width: double.infinity,
-                  height: 168,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _fileIcon(colorScheme),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        message,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _statusText(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: failed
-                              ? colorScheme.error
-                              : colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_completed)
-                  Icon(
-                    Icons.check_circle_rounded,
-                    size: 18,
-                    color: failed ? colorScheme.error : Colors.green.shade500,
-                  ),
-              ],
+                ? colorScheme.primaryContainer.withOpacity(0.7)
+                : colorScheme.surface,
+            borderRadius: _bubbleRadius(mine),
+            border: Border.all(
+              color: mine
+                  ? colorScheme.primary.withOpacity(0.16)
+                  : colorScheme.outlineVariant.withOpacity(0.4),
             ),
-            if (!_completed || failed) ...[
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: failed ? 1 : progress.clamp(0.0, 1.0),
-                  minHeight: 4,
-                  backgroundColor: colorScheme.outlineVariant.withOpacity(0.35),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    failed ? colorScheme.error : colorScheme.primary,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (type == StandType.image &&
+                  _completed &&
+                  File(path).existsSync()) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(
+                    File(path),
+                    width: double.infinity,
+                    height: 168,
+                    fit: BoxFit.cover,
                   ),
                 ),
+                const SizedBox(height: 10),
+              ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _fileIcon(colorScheme),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _statusText(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: failed
+                                ? colorScheme.error
+                                : colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_completed)
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 18,
+                      color: failed ? colorScheme.error : Colors.green.shade500,
+                    ),
+                ],
               ),
+              if (!_completed || failed) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: failed ? 1 : progress.clamp(0.0, 1.0),
+                    minHeight: 4,
+                    backgroundColor:
+                        colorScheme.outlineVariant.withOpacity(0.35),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      failed ? colorScheme.error : colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+              if (failed && error != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  error!,
+                  style: TextStyle(fontSize: 11, color: colorScheme.error),
+                ),
+              ],
             ],
-            if (failed && error != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                error!,
-                style: TextStyle(fontSize: 11, color: colorScheme.error),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -167,7 +177,10 @@ class MessageWidget extends StatelessWidget {
       StandType.image => (Icons.image_rounded, const Color(0xFF7C5CFF)),
       StandType.audio => (Icons.audiotrack_rounded, const Color(0xFFEF8B3E)),
       StandType.video => (Icons.movie_rounded, const Color(0xFFE45C86)),
-      StandType.document => (Icons.description_rounded, const Color(0xFF4C8BF5)),
+      StandType.document => (
+          Icons.description_rounded,
+          const Color(0xFF4C8BF5)
+        ),
       StandType.program => (Icons.terminal_rounded, const Color(0xFF35B36F)),
       _ => (Icons.insert_drive_file_rounded, colorScheme.primary),
     };
@@ -214,7 +227,7 @@ class MessageWidget extends StatelessWidget {
     }
   }
 
-  void _onLongPress(BuildContext context, LongPressStartDetails details) async {
+  void _showMenu(BuildContext context, Offset globalPosition) async {
     final items = <PopupMenuEntry<String>>[
       const PopupMenuItem<String>(
         value: 'copyMsg',
@@ -235,10 +248,10 @@ class MessageWidget extends StatelessWidget {
     final result = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(
-        details.globalPosition.dx,
-        details.globalPosition.dy,
-        details.globalPosition.dx,
-        details.globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
+        globalPosition.dx,
+        globalPosition.dy,
       ),
       items: items,
     );
@@ -260,9 +273,8 @@ class MessageWidget extends StatelessWidget {
   }
 
   Future<void> _openFolder(BuildContext context) async {
-    final separator = path.lastIndexOf('/') > path.lastIndexOf('\\')
-        ? '/'
-        : '\\';
+    final separator =
+        path.lastIndexOf('/') > path.lastIndexOf('\\') ? '/' : '\\';
     final index = path.lastIndexOf(separator);
     if (index <= 0) return;
     final folder = path.substring(0, index);

@@ -18,8 +18,9 @@ A simple, cross-platform LAN transmission tool built on Flutter.
 3. End-to-end encryption: ECDH P-256 key agreement and AES-256-GCM for every message and file
 4. QR pairing: show or scan a QR code, one-time pairing code, encrypted session starts automatically
 5. Open the file (bring up the media player or select another pop-up window)
-6. Message long press menu (copy text, copy full path, open file location)
+6. Message long press menu (copy text, copy full path, open file location); right-click menu on desktop
 7. Received files are scanned into the media library on Android, so other apps and file managers see them immediately; open the receive folder in one tap
+8. Desktop experience: drag files into the window to send them (multiple files supported), press Enter to send, centered layout on wide windows
 
 ## Security
 
