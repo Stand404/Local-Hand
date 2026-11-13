@@ -166,6 +166,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final accepted = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,
@@ -250,6 +251,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _waitingSheetOpen = true;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       isDismissible: false,
       enableDrag: false,
       backgroundColor: Colors.transparent,

@@ -72,7 +72,7 @@ class _ConnectByOtherBottomSheet extends State<ConnectByOtherBottomSheet>
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 10, 24, 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
