@@ -1,156 +1,238 @@
 // ignore_for_file: file_names
-// 消息块
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_file/open_file.dart';
+
+import '../core/android_bridge.dart';
+import '../core/file_storage.dart';
 import '../http/StandHttpServer.dart';
 
+/// 单条消息/文件气泡。
 class MessageWidget extends StatelessWidget {
   final String message;
   final String path;
   final StandType type;
   final double progress;
+  final int size;
+  final bool failed;
+  final String? error;
+  final bool mine;
 
-  const MessageWidget(
-      {super.key,
-      required this.message,
-      required this.path,
-      required this.type,
-      required this.progress});
+  const MessageWidget({
+    super.key,
+    required this.message,
+    required this.path,
+    required this.type,
+    required this.progress,
+    required this.size,
+    required this.mine,
+    this.failed = false,
+    this.error,
+  });
 
-  void upProgress(double progress) {}
+  bool get _completed => progress >= 1;
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    IconData icon = Icons.file_copy;
-    switch (type) {
-      case StandType.audio:
-        icon = Icons.music_note;
-        break;
-      case StandType.image:
-        icon = Icons.photo;
-        break;
-      case StandType.video:
-        icon = Icons.videocam;
-        break;
-      case StandType.document:
-        icon = Icons.insert_drive_file;
-        break;
-      case StandType.program:
-        icon = Icons.build;
-        break;
-      case StandType.other:
-      default:
-        icon = Icons.file_copy;
-        break;
-    }
-
-    Widget messageWidget = Flexible(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 300), // 应用 maxWidth 约束
-        child: Text(
-          message,
-          // overflow: TextOverflow.clip,
-          maxLines: null,
-        ),
-      ),
-    );
-
-    if (type != StandType.text) {
-      messageWidget = GestureDetector(
-          onTap: openFile // 打开文件
-          ,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 180), // 应用 maxWidth 约束
-            child: Text(
-              message,
-              // overflow: TextOverflow.clip,
-              maxLines: null,
-              style: TextStyle(
-                  decoration: TextDecoration.underline,
-                  color: colorScheme.primary),
+    final colorScheme = Theme.of(context).colorScheme;
+    if (type == StandType.text) {
+      return GestureDetector(
+        onLongPressStart: (details) => _onLongPress(context, details),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: mine ? colorScheme.primary : colorScheme.surface,
+            borderRadius: _bubbleRadius(mine),
+            border: mine
+                ? null
+                : Border.all(
+                    color: colorScheme.outlineVariant.withOpacity(0.4)),
+          ),
+          child: Text(
+            message,
+            style: TextStyle(
+              fontSize: 15,
+              height: 1.35,
+              color: mine ? colorScheme.onPrimary : colorScheme.onSurface,
             ),
-          ));
+          ),
+        ),
+      );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(8),
-      constraints:
-          const BoxConstraints(minWidth: 30, maxWidth: 240, minHeight: 30),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: GestureDetector(
-        onLongPressStart: (details) => onLongPress(context, details), //长按复制
+    return GestureDetector(
+      onLongPressStart: (details) => _onLongPress(context, details),
+      onTap: _completed ? () => _openFile(context) : null,
+      child: Container(
+        width: 272,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: mine
+              ? colorScheme.primaryContainer.withOpacity(0.7)
+              : colorScheme.surface,
+          borderRadius: _bubbleRadius(mine),
+          border: Border.all(
+            color: mine
+                ? colorScheme.primary.withOpacity(0.16)
+                : colorScheme.outlineVariant.withOpacity(0.4),
+          ),
+        ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (type != StandType.text)
-              LinearProgressIndicator(
-                value: progress, // 设置进度值
-                backgroundColor: Colors.grey[300], // 设置背景颜色
-                valueColor: AlwaysStoppedAnimation<Color>(
-                    colorScheme.primary), // 设置进度条的颜色
+            if (type == StandType.image &&
+                _completed &&
+                File(path).existsSync()) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(
+                  File(path),
+                  width: double.infinity,
+                  height: 168,
+                  fit: BoxFit.cover,
+                ),
               ),
-            if (type != StandType.text)
-              const SizedBox(
-                height: 8,
-              ),
-            if (type == StandType.image && progress == 1)
-              Image.file(
-                File(path),
-                fit: BoxFit.cover,
-              ),
+              const SizedBox(height: 10),
+            ],
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (type != StandType.text)
-                  Icon(icon, size: 20), // 显示图标，除非类型为text
-                if (type != StandType.text) const SizedBox(width: 8),
-                messageWidget,
+                _fileIcon(colorScheme),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _statusText(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: failed
+                              ? colorScheme.error
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_completed)
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 18,
+                    color: failed ? colorScheme.error : Colors.green.shade500,
+                  ),
               ],
             ),
+            if (!_completed || failed) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: failed ? 1 : progress.clamp(0.0, 1.0),
+                  minHeight: 4,
+                  backgroundColor: colorScheme.outlineVariant.withOpacity(0.35),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    failed ? colorScheme.error : colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+            if (failed && error != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                error!,
+                style: TextStyle(fontSize: 11, color: colorScheme.error),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  void openFile() async {
-    await OpenFile.open(path);
+  Widget _fileIcon(ColorScheme colorScheme) {
+    final (icon, color) = switch (type) {
+      StandType.image => (Icons.image_rounded, const Color(0xFF7C5CFF)),
+      StandType.audio => (Icons.audiotrack_rounded, const Color(0xFFEF8B3E)),
+      StandType.video => (Icons.movie_rounded, const Color(0xFFE45C86)),
+      StandType.document => (Icons.description_rounded, const Color(0xFF4C8BF5)),
+      StandType.program => (Icons.terminal_rounded, const Color(0xFF35B36F)),
+      _ => (Icons.insert_drive_file_rounded, colorScheme.primary),
+    };
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, size: 21, color: color),
+    );
   }
 
-  // 长按菜单
-  void onLongPress(BuildContext context, LongPressStartDetails details) async {
-    List<PopupMenuEntry<String>> items = [
+  String _statusText() {
+    if (failed) return error ?? '传输失败';
+    final sizeText = size > 0 ? formatBytes(size) : '';
+    if (_completed) {
+      return sizeText.isEmpty ? '已完成' : sizeText;
+    }
+    final percent = (progress.clamp(0.0, 1.0) * 100).toStringAsFixed(0);
+    return sizeText.isEmpty ? '传输中 $percent%' : '$sizeText · $percent%';
+  }
+
+  BorderRadius _bubbleRadius(bool mine) {
+    const large = Radius.circular(18);
+    const small = Radius.circular(5);
+    return BorderRadius.only(
+      topLeft: large,
+      topRight: large,
+      bottomLeft: mine ? large : small,
+      bottomRight: mine ? small : large,
+    );
+  }
+
+  Future<void> _openFile(BuildContext context) async {
+    if (path.isEmpty || !File(path).existsSync()) {
+      if (context.mounted) _snack(context, '文件不存在或已被移动');
+      return;
+    }
+    final result = await OpenFile.open(path);
+    if (result.type != ResultType.done && context.mounted) {
+      _snack(context, '无法打开该文件，请先安装对应的应用');
+    }
+  }
+
+  void _onLongPress(BuildContext context, LongPressStartDetails details) async {
+    final items = <PopupMenuEntry<String>>[
       const PopupMenuItem<String>(
         value: 'copyMsg',
-        child: Text('复制消息文字'),
+        child: Text('复制文字'),
       ),
     ];
-
-    if (path != "" && path != " ") {
-      items.add(
-        const PopupMenuItem<String>(
-          value: 'copyPath',
-          child: Text('复制完整路径'),
-        ),
-      );
-
-      // 安卓用不了不知道为啥
-      if (Platform.isWindows) {
-        items.add(
-          const PopupMenuItem<String>(
-            value: 'openFolder',
-            child: Text('打开文件位置'),
-          ),
-        );
-      }
+    if (path.isNotEmpty) {
+      items.add(const PopupMenuItem<String>(
+        value: 'copyPath',
+        child: Text('复制完整路径'),
+      ));
+      items.add(const PopupMenuItem<String>(
+        value: 'openFolder',
+        child: Text('打开文件位置'),
+      ));
     }
 
     final result = await showMenu<String>(
-      // ignore: use_build_context_synchronously
       context: context,
       position: RelativeRect.fromLTRB(
         details.globalPosition.dx,
@@ -160,28 +242,51 @@ class MessageWidget extends StatelessWidget {
       ),
       items: items,
     );
+    if (!context.mounted || result == null) return;
 
-    if (result == 'copyMsg') {
-      Clipboard.setData(ClipboardData(text: message));
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('文字已复制到剪贴板')),
-      );
-    } else if (result == 'copyPath') {
-      Clipboard.setData(ClipboardData(text: path));
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('路径已复制到剪贴板')),
-      );
-    } else if (result == 'openFolder') {
-      // 查找最后一个斜杠的位置
-      // print(path);
-      int lastSlashIndex = path.lastIndexOf('/');
-      if (lastSlashIndex == -1) {
-        lastSlashIndex = path.lastIndexOf('\\');
-      }
-      var folderPath = path.substring(0, lastSlashIndex);
-      await OpenFile.open(folderPath);
+    switch (result) {
+      case 'copyMsg':
+        await Clipboard.setData(ClipboardData(text: message));
+        if (context.mounted) _snack(context, '文字已复制');
+        break;
+      case 'copyPath':
+        await Clipboard.setData(ClipboardData(text: path));
+        if (context.mounted) _snack(context, '路径已复制');
+        break;
+      case 'openFolder':
+        await _openFolder(context);
+        break;
     }
+  }
+
+  Future<void> _openFolder(BuildContext context) async {
+    final separator = path.lastIndexOf('/') > path.lastIndexOf('\\')
+        ? '/'
+        : '\\';
+    final index = path.lastIndexOf(separator);
+    if (index <= 0) return;
+    final folder = path.substring(0, index);
+
+    if (Platform.isAndroid) {
+      final opened = await AndroidBridge.openFolder(folder);
+      if (!opened && context.mounted) {
+        _snack(context, '无法打开文件管理器');
+      }
+      return;
+    }
+
+    final result = await OpenFile.open(folder);
+    if (result.type != ResultType.done && context.mounted) {
+      _snack(context, '无法打开文件夹');
+    }
+  }
+
+  void _snack(BuildContext context, String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 }

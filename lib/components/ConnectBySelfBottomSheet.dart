@@ -1,14 +1,21 @@
 // ignore_for_file: file_names
 import 'dart:async';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 
-// 定义回调类型的别名
-typedef CountdownCallback = Function();
-
+/// 已发出连接请求，等待对方接受。
 class CountdownBottomSheet extends StatefulWidget {
-  final CountdownCallback? onCountdownEnd;
-  const CountdownBottomSheet({super.key, this.onCountdownEnd});
+  final String peerTitle;
+  final VoidCallback? onCancel;
+  final int totalSeconds;
+
+  const CountdownBottomSheet({
+    super.key,
+    required this.peerTitle,
+    this.onCancel,
+    this.totalSeconds = 65,
+  });
 
   @override
   // ignore: library_private_types_in_public_api
@@ -17,13 +24,23 @@ class CountdownBottomSheet extends StatefulWidget {
 
 class _CountdownBottomSheetState extends State<CountdownBottomSheet>
     with SingleTickerProviderStateMixin {
-  int _counter = 60; // 倒计时
-  late Timer _timer;
+  late int _counter;
+  late final Timer _timer;
+  bool _finished = false;
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
+    _counter = widget.totalSeconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_counter > 0) {
+        setState(() => _counter--);
+      } else {
+        timer.cancel();
+        _finish();
+      }
+    });
   }
 
   @override
@@ -32,118 +49,152 @@ class _CountdownBottomSheetState extends State<CountdownBottomSheet>
     super.dispose();
   }
 
-  void _startTimer() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_counter > 0 && mounted) {
-        setState(() {
-          _counter--;
-        });
-      } else {
-        timer.cancel();
-        widget.onCountdownEnd?.call(); // 触发回调
-      }
-    });
+  void _finish() {
+    if (_finished) return;
+    _finished = true;
+    _timer.cancel();
+    widget.onCancel?.call();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      height: MediaQuery.of(context).size.height / 2,
-      color: Colors.grey[200],
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text("等待接受", style: TextStyle(fontSize: 24)),
-            const SizedBox(height: 20),
-            Container(
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: const Color.fromARGB(255, 216, 216, 216), width: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 10, 24, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-              alignment: Alignment.center,
-              child: Stack(
-                // 使用 Stack 来组合多个子元素
-                children: <Widget>[
-                  Center(
-                    // 将 CustomPaint 居中显示
-                    child: CustomPaint(
-                      size: const Size(150, 150), // 设置 CustomPaint 的大小
-                      painter: AnimatedCircleSectorPainter(_counter, context),
-                    ),
-                  ),
-                  Center(
-                    // 将 Text 居中显示
-                    child: Text(
-                      _counter.toString(),
-                      style: TextStyle(
+              const SizedBox(height: 22),
+              SizedBox(
+                width: 132,
+                height: 132,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: const Size(132, 132),
+                      painter: _WaitingRingPainter(
+                        progress: widget.totalSeconds == 0
+                            ? 0
+                            : _counter / widget.totalSeconds,
                         color: colorScheme.primary,
-                        fontSize: 30,
+                        trackColor:
+                            colorScheme.outlineVariant.withOpacity(0.45),
                       ),
                     ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '$_counter',
+                          style: TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        Text('秒',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text('等待对方接受',
+                  style:
+                      TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text(
+                widget.peerTitle,
+                style: TextStyle(
+                    fontSize: 13, color: colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                '若对方长时间没有响应，可以改用扫码配对',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.onSurfaceVariant.withOpacity(0.8)),
+              ),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: _finish,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  foregroundColor: colorScheme.error,
+                  side:
+                      BorderSide(color: colorScheme.error.withOpacity(0.35)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                ],
+                ),
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('取消'),
               ),
-            ),
-            const SizedBox(height: 20),
-            TextButton.icon(
-              onPressed: () {
-                widget.onCountdownEnd?.call();
-              }, // 触发回调,
-              label: Text(
-                "取消",
-                style: TextStyle(color: Colors.red[400], fontSize: 16),
-              ),
-              icon: Icon(
-                Icons.cancel,
-                color: Colors.red[400],
-              ),
-            )
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class AnimatedCircleSectorPainter extends CustomPainter {
-  final int timer; // Timer value in seconds
-  final BuildContext context;
+class _WaitingRingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color trackColor;
 
-  AnimatedCircleSectorPainter(this.timer, this.context);
+  _WaitingRingPainter({
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-
-    final Paint sectorPaint = Paint()
-      ..color = colorScheme.primary
-      ..strokeWidth = 10
-      ..strokeCap = StrokeCap.round
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 6;
+    final track = Paint()
+      ..color = trackColor
       ..style = PaintingStyle.stroke
-      ..isAntiAlias = true;
+      ..strokeWidth = 8;
+    final arc = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round;
 
-    final double radius =
-        (size.width < size.height) ? size.width / 2 : size.height / 2;
-
-    // 计算扇形的角度
-    final double angle = timer / 60 * 360;
-
-    // 绘制扇形
-    final Rect rect = Rect.fromCircle(
-        center: Offset(size.width / 2, size.height / 2), radius: radius + 5);
-    canvas.drawArc(rect, -pi / 2, angle * pi / 180, false, sectorPaint);
+    canvas.drawCircle(center, radius, track);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      progress.clamp(0.0, 1.0) * 2 * pi,
+      false,
+      arc,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    if (oldDelegate is AnimatedCircleSectorPainter) {
-      return timer != oldDelegate.timer;
-    }
-    return true;
+  bool shouldRepaint(covariant _WaitingRingPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }
