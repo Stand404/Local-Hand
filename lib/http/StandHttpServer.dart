@@ -6,6 +6,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:localhand/core/android_bridge.dart';
+import 'package:localhand/core/crypto_worker.dart';
 import 'package:localhand/core/file_storage.dart';
 import 'package:localhand/core/protocol.dart';
 import 'package:localhand/core/secure_channel.dart';
@@ -21,8 +22,8 @@ class StandFile {
   StandFile(this.filename, this.filePath, this.fileType, {this.size = 0});
 }
 
-/// 接收端。所有文件与消息都使用本次会话的 AES-256-GCM 密钥解密，
-/// 校验失败的连接会被直接丢弃。
+/// 接收端。消息使用会话密钥的 AES-256-GCM 解密，文件分块使用
+/// AES-256-CTR + HMAC-SHA256 校验，失败的连接会被直接丢弃。
 class StandHttpServer {
   final Uint8List key;
   final Function(StandFile standFile) receiveFileCallback;
@@ -32,6 +33,7 @@ class StandHttpServer {
   final Function(int index, String error)? onReceiveError;
 
   HttpServer? _server;
+  CryptoWorker? _worker;
 
   StandHttpServer({
     required this.key,
@@ -61,7 +63,12 @@ class StandHttpServer {
   void closeServer() {
     _server?.close(force: true);
     _server = null;
+    _worker?.close();
+    _worker = null;
   }
+
+  Future<CryptoWorker> _crypto() async =>
+      _worker ??= await CryptoWorker.spawn(key);
 
   Future<void> _handle(HttpRequest request) async {
     try {
@@ -159,6 +166,7 @@ class StandHttpServer {
 
     final sink = partFile.openWrite();
     final reader = _BodyReader(request);
+    final worker = await _crypto();
     var received = 0;
     var frames = 0;
     var sinkClosed = false;
@@ -169,14 +177,13 @@ class StandHttpServer {
         if (header == null) throw const FormatException('missing frame header');
         final length =
             ByteData.sublistView(header).getUint32(0, Endian.big);
-        if (length < gcmTagLength || length > fileChunkSize + gcmTagLength) {
+        if (length < fileTagLength || length > fileChunkSize + fileTagLength) {
           throw const FormatException('invalid frame length');
         }
         final encrypted = await reader.readExact(length);
         if (encrypted == null) throw const FormatException('missing frame');
         final aad = utf8.encode('file|$i|$totalChunks|$nameBox');
-        final plain = openWithNonce(
-            key, chunkNonce(baseNonce, i), encrypted, aad);
+        final plain = await worker.openChunk(baseNonce, i, encrypted, aad);
         sink.add(plain);
         received += plain.length;
         frames++;

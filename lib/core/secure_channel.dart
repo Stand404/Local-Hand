@@ -94,6 +94,9 @@ const int gcmNonceLength = 12;
 const int gcmTagLength = 16;
 const int _gcmTagBits = 128;
 
+/// 文件分块认证标签长度（HMAC-SHA256 截断）。
+const int fileTagLength = 16;
+
 /// AES-256-GCM 加密，返回 nonce + 密文 + tag。
 Uint8List sealBytes(Uint8List key, List<int> plaintext,
     {List<int> aad = const []}) {
@@ -146,13 +149,83 @@ String encryptText(Uint8List key, String text, {String aad = 'msg'}) =>
 String decryptText(Uint8List key, String base64Data, {String aad = 'msg'}) =>
     utf8.decode(openBytes(key, base64Decode(base64Data), aad: utf8.encode(aad)));
 
-/// 文件分块使用：8 字节随机前缀 + 4 字节大端分块序号。
-Uint8List chunkNonce(Uint8List baseNonce, int index) {
-  final nonce = Uint8List(gcmNonceLength);
-  nonce.setAll(0, baseNonce);
-  nonce[8] = (index >> 24) & 0xff;
-  nonce[9] = (index >> 16) & 0xff;
-  nonce[10] = (index >> 8) & 0xff;
-  nonce[11] = index & 0xff;
-  return nonce;
+/// 文件分块使用：8 字节随机前缀 + 4 字节大端分块序号 + 4 字节计数器。
+Uint8List chunkIv(Uint8List baseNonce, int index) {
+  final iv = Uint8List(16);
+  iv.setAll(0, baseNonce);
+  iv[8] = (index >> 24) & 0xff;
+  iv[9] = (index >> 16) & 0xff;
+  iv[10] = (index >> 8) & 0xff;
+  iv[11] = index & 0xff;
+  return iv;
+}
+
+Uint8List _deriveSubkey(Uint8List key, String label) {
+  return Uint8List.fromList(crypto.sha256
+      .convert(<int>[...utf8.encode('LocalHand/file/$label'), ...key])
+      .bytes);
+}
+
+/// 文件分块加密：AES-256-CTR + HMAC-SHA256（先加密后认证）。
+///
+/// pointycastle 的 GCM 在纯 Dart 下只有约 1 MB/s，大文件会长时间占满 CPU；
+/// CTR 与 HMAC 能到 50-90 MB/s，仍保持每块 16 字节认证开销。
+Uint8List sealChunk(Uint8List key, Uint8List baseNonce, int index,
+    List<int> plaintext, List<int> aad) {
+  final cipher = CTRStreamCipher(AESEngine())
+    ..init(
+        true,
+        ParametersWithIV(
+            KeyParameter(_deriveSubkey(key, 'enc')), chunkIv(baseNonce, index)));
+  final ciphertext = cipher.process(Uint8List.fromList(plaintext));
+  final tag = _chunkTag(key, baseNonce, index, aad, ciphertext);
+  final result = Uint8List(ciphertext.length + fileTagLength);
+  result.setAll(0, ciphertext);
+  result.setAll(ciphertext.length, tag);
+  return result;
+}
+
+/// 校验认证标签后再解密；失败抛出 [FormatException]。
+Uint8List openChunk(Uint8List key, Uint8List baseNonce, int index,
+    List<int> data, List<int> aad) {
+  if (data.length < fileTagLength) {
+    throw const FormatException('加密数据不完整');
+  }
+  final split = data.length - fileTagLength;
+  final ciphertext = data.sublist(0, split);
+  final tag = data.sublist(split);
+  if (!_constantTimeEquals(
+      tag, _chunkTag(key, baseNonce, index, aad, ciphertext))) {
+    throw const FormatException('数据校验失败');
+  }
+  final cipher = CTRStreamCipher(AESEngine())
+    ..init(
+        false,
+        ParametersWithIV(
+            KeyParameter(_deriveSubkey(key, 'enc')), chunkIv(baseNonce, index)));
+  return cipher.process(Uint8List.fromList(ciphertext));
+}
+
+List<int> _chunkTag(Uint8List key, Uint8List baseNonce, int index,
+    List<int> aad, List<int> ciphertext) {
+  final mac = crypto.Hmac(crypto.sha256, _deriveSubkey(key, 'mac'))
+      .convert(<int>[
+    ...aad,
+    ...baseNonce,
+    (index >> 24) & 0xff,
+    (index >> 16) & 0xff,
+    (index >> 8) & 0xff,
+    index & 0xff,
+    ...ciphertext,
+  ]);
+  return mac.bytes.sublist(0, fileTagLength);
+}
+
+bool _constantTimeEquals(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
 }

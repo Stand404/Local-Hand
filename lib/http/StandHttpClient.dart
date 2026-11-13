@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:localhand/core/crypto_worker.dart';
 import 'package:localhand/core/protocol.dart';
 import 'package:localhand/core/secure_channel.dart';
 
@@ -18,6 +19,8 @@ class StandHttpClient {
   final Function(double progress, int index) onProgress;
   final Function(int index, String error)? onSendError;
 
+  CryptoWorker? _worker;
+
   StandHttpClient({
     required this.address,
     required this.key,
@@ -25,6 +28,14 @@ class StandHttpClient {
     required this.onProgress,
     this.onSendError,
   });
+
+  Future<CryptoWorker> _crypto() async =>
+      _worker ??= await CryptoWorker.spawn(key);
+
+  void dispose() {
+    _worker?.close();
+    _worker = null;
+  }
 
   Future<bool> uploadFile(String filePath, String filename) async {
     final file = File(filePath);
@@ -39,7 +50,7 @@ class StandHttpClient {
     final baseNonce = randomBytes(fileBaseNonceLength);
     final nameBox = base64Encode(
         sealBytes(key, utf8.encode(filename), aad: utf8.encode('name')));
-    final totalBody = size + chunks * (gcmTagLength + frameHeaderLength);
+    final totalBody = size + chunks * (fileTagLength + frameHeaderLength);
     final index = onSent(filename, getFileType(filename), filePath, size);
 
     final client = HttpClient()
@@ -49,6 +60,7 @@ class StandHttpClient {
     RandomAccessFile? raf;
 
     try {
+      final worker = await _crypto();
       request = await client
           .postUrl(Uri.parse('http://$address:$transferPort/file'))
           .timeout(const Duration(seconds: 10));
@@ -63,9 +75,9 @@ class StandHttpClient {
       for (var i = 0; i < chunks; i++) {
         final length = min(fileChunkSize, size - sent);
         final plain = await raf.read(length);
-        final encrypted = sealWithNonce(
-          key,
-          chunkNonce(baseNonce, i),
+        final encrypted = await worker.sealChunk(
+          baseNonce,
+          i,
           plain,
           utf8.encode('file|$i|$chunks|$nameBox'),
         );

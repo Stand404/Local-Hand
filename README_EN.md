@@ -15,7 +15,7 @@ A simple, cross-platform LAN transmission tool built on Flutter.
 
 1. Automatic LAN discovery with a reliable TCP connection handshake
 2. Send and receive files and text messages, with multi-file selection
-3. End-to-end encryption: ECDH P-256 key agreement and AES-256-GCM for every message and file
+3. End-to-end encryption: ECDH P-256 key agreement, AES-256-GCM for messages and AES-256-CTR + HMAC-SHA256 for file chunks
 4. QR pairing: show or scan a QR code, one-time pairing code, encrypted session starts automatically
 5. Open the file (bring up the media player or select another pop-up window)
 6. Message long press menu (copy text, copy full path, open file location); right-click menu on desktop
@@ -25,7 +25,7 @@ A simple, cross-platform LAN transmission tool built on Flutter.
 ## Security
 
 - Every connection uses fresh ephemeral ECDH keys; session keys live only in memory and are discarded on disconnect.
-- Files are streamed in encrypted 256 KB frames. Chunk order, chunk count and file metadata are authenticated, so tampering, reordering or truncation is rejected.
+- Files are streamed in encrypted 256 KB frames. Chunk order, chunk count and file metadata are authenticated, so tampering, reordering or truncation is rejected. Encryption runs on a background isolate so large transfers keep the UI responsive.
 - File names are encrypted too, and the receiver sanitizes them so peers cannot write outside the receive folder.
 - QR pairing uses a random one-time code; reopening the pairing sheet refreshes it.
 

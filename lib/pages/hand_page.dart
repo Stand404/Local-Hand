@@ -99,6 +99,7 @@ class _HandPageState extends State<HandPage> {
   void dispose() {
     widget.isClose.removeListener(_onPeerStateChanged);
     _standHttpServer.closeServer();
+    _standHttpClient.dispose();
     unawaited(ControlClient.close(widget.session.peerAddress));
     _scrollController.dispose();
     _textController.dispose();

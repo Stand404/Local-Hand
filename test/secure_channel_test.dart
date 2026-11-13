@@ -46,13 +46,34 @@ void main() {
     );
   });
 
-  test('分块 nonce 随序号变化且共享前缀', () {
+  test('分块 IV 随序号变化且共享前缀', () {
     final base = randomBytes(8);
-    final first = chunkNonce(base, 1);
-    final second = chunkNonce(base, 2);
+    final first = chunkIv(base, 1);
+    final second = chunkIv(base, 2);
+    expect(first.length, 16);
     expect(first.sublist(0, 8), base);
     expect(first, isNot(second));
-    expect(chunkNonce(Uint8List.fromList(base), 1), first);
+    expect(chunkIv(Uint8List.fromList(base), 1), first);
+  });
+
+  test('分块加密往返，篡改或错位都会失败', () {
+    final key = randomBytes(32);
+    final base = randomBytes(8);
+    final aad = utf8.encode('file|0|1|name');
+    final plain = randomBytes(1000);
+
+    final sealed = sealChunk(key, base, 0, plain, aad);
+    expect(sealed.length, plain.length + fileTagLength);
+    expect(openChunk(key, base, 0, sealed, aad), plain);
+
+    final tampered = Uint8List.fromList(sealed);
+    tampered[0] ^= 0xff;
+    expect(() => openChunk(key, base, 0, tampered, aad), throwsFormatException);
+    expect(() => openChunk(key, base, 1, sealed, aad), throwsFormatException);
+    expect(
+      () => openChunk(key, base, 0, sealed, utf8.encode('file|0|1|other')),
+      throwsFormatException,
+    );
   });
 
   test('文本加解密与错误密钥', () {
