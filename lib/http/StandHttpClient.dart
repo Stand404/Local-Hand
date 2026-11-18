@@ -40,10 +40,15 @@ class StandHttpClient {
     _worker = null;
   }
 
-  Future<bool> uploadFile(String filePath, String filename) async {
+  Future<bool> uploadFile(
+    String filePath,
+    String filename, {
+    int? existingIndex,
+  }) async {
     final file = File(filePath);
     if (!await file.exists()) {
-      final index = onSent(filename, getFileType(filename), filePath, 0);
+      final index = existingIndex ??
+          onSent(filename, getFileType(filename), filePath, 0);
       onSendError?.call(index, '文件不存在');
       return false;
     }
@@ -54,7 +59,8 @@ class StandHttpClient {
     final nameBox = base64Encode(
         sealBytes(key, utf8.encode(filename), aad: utf8.encode('name')));
     final totalBody = size + chunks * (fileTagLength + frameHeaderLength);
-    final index = onSent(filename, getFileType(filename), filePath, size);
+    final index = existingIndex ??
+        onSent(filename, getFileType(filename), filePath, size);
 
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8)
@@ -134,11 +140,9 @@ class StandHttpClient {
         throw HttpException('server returned ${response.statusCode}');
       }
       return true;
-    } catch (_) {
-      try {
-        request?.abort();
-      } catch (_) {}
-      onSendError?.call(index, '发送失败，请检查连接');
+    } catch (e) {
+      _abortRequest(request);
+      onSendError?.call(index, _sendErrorMessage(e, fallback: '发送失败，请检查连接'));
       return false;
     } finally {
       try {
@@ -148,8 +152,8 @@ class StandHttpClient {
     }
   }
 
-  Future<bool> sendMsg(String msg) async {
-    final index = onSent(msg, StandType.text, '', 0);
+  Future<bool> sendMsg(String msg, {int? existingIndex}) async {
+    final index = existingIndex ?? onSent(msg, StandType.text, '', 0);
     final box = sealBytes(key, utf8.encode(msg), aad: utf8.encode('msg'));
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8);
@@ -167,14 +171,28 @@ class StandHttpClient {
         throw HttpException('server returned ${response.statusCode}');
       }
       return true;
-    } catch (_) {
-      try {
-        request?.abort();
-      } catch (_) {}
-      onSendError?.call(index, '消息发送失败');
+    } catch (e) {
+      _abortRequest(request);
+      onSendError?.call(index, _sendErrorMessage(e, fallback: '消息发送失败'));
       return false;
     } finally {
       client.close(force: true);
     }
+  }
+
+  void _abortRequest(HttpClientRequest? request) {
+    try {
+      request?.abort();
+    } catch (_) {}
+  }
+
+  String _sendErrorMessage(Object error, {required String fallback}) {
+    if (error is SocketException) {
+      return '无法连接对方，请检查网络或防火墙';
+    }
+    if (error is TimeoutException) {
+      return '连接超时，请检查网络或防火墙';
+    }
+    return fallback;
   }
 }

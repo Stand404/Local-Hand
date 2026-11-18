@@ -11,6 +11,7 @@ import '../components/MessageWidget.dart';
 import '../components/device_icon.dart';
 import '../core/android_bridge.dart';
 import '../core/file_storage.dart';
+import '../core/protocol.dart';
 import '../http/StandHttpClient.dart';
 import '../http/StandHttpServer.dart';
 import '../models/session.dart';
@@ -81,14 +82,20 @@ class _HandPageState extends State<HandPage> {
 
     _standHttpServer = StandHttpServer(
       key: widget.session.key,
+      port: widget.session.localTransferServer?.port ?? transferPort,
+      preboundServer: widget.session.localTransferServer,
       receiveFileCallback: _receiveFile,
       receiveFileEndCallback: _receiveFileEnd,
       receiveMsgCallback: _receiveMsg,
       onProgress: _updateProgress,
       onReceiveError: _markFailed,
+      onStartError: (message) {
+        if (mounted) _showSnack(message);
+      },
     );
     _standHttpClient = StandHttpClient(
       address: widget.session.peerAddress,
+      port: widget.session.peerTransferPort,
       key: widget.session.key,
       onSent: _onSent,
       onProgress: _updateProgress,
@@ -101,7 +108,10 @@ class _HandPageState extends State<HandPage> {
     widget.isClose.removeListener(_onPeerStateChanged);
     _standHttpServer.closeServer();
     _standHttpClient.dispose();
-    unawaited(ControlClient.close(widget.session.peerAddress));
+    unawaited(ControlClient.close(
+      widget.session.peerAddress,
+      port: widget.session.peerControlPort,
+    ));
     _scrollController.dispose();
     _textController.dispose();
     super.dispose();
@@ -275,6 +285,47 @@ class _HandPageState extends State<HandPage> {
     _standHttpClient.sendMsg(text);
   }
 
+  Future<void> _retryMessage(int index) async {
+    if (!mounted || index < 0 || index >= _messages.length) return;
+    if (_peerClosed) {
+      _showSnack('连接已断开，无法重发');
+      return;
+    }
+    final message = _messages[index];
+    if (!message.failed || message.center != MessageCenter.right) return;
+
+    if (message.type == StandType.text) {
+      setState(() {
+        message.failed = false;
+        message.error = null;
+      });
+      await _standHttpClient.sendMsg(message.message, existingIndex: index);
+      return;
+    }
+
+    if (_sendingFiles) {
+      _showSnack('正在发送文件，请稍候');
+      return;
+    }
+    setState(() {
+      _sendingFiles = true;
+      message.failed = false;
+      message.error = null;
+      message.progress = 0;
+    });
+    try {
+      await _standHttpClient.uploadFile(
+        message.path,
+        message.message,
+        existingIndex: index,
+      );
+    } catch (_) {
+      if (mounted) _markFailed(index, '发送失败，请检查连接');
+    } finally {
+      if (mounted) setState(() => _sendingFiles = false);
+    }
+  }
+
   Future<void> _openReceiveFolder() async {
     final dir = await receiveDirectory();
     if (!mounted) return;
@@ -437,6 +488,9 @@ class _HandPageState extends State<HandPage> {
                                         failed: message.failed,
                                         error: message.error,
                                         mine: mine,
+                                        onRetry: (mine && message.failed)
+                                            ? () => _retryMessage(index)
+                                            : null,
                                       ),
                                     ),
                                   ],
@@ -486,77 +540,80 @@ class _HandPageState extends State<HandPage> {
   Widget _buildDropOverlay(ColorScheme colorScheme) {
     return Positioned.fill(
       child: IgnorePointer(
-        child: ColoredBox(
-          color: colorScheme.scrim.withValues(alpha: 0.32),
-          child: Center(
-            child: Container(
-              width: 340,
-              padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: colorScheme.primary.withValues(alpha: 0.35),
-                  width: 1.5,
+        child: Material(
+          type: MaterialType.transparency,
+          child: ColoredBox(
+            color: colorScheme.scrim.withValues(alpha: 0.32),
+            child: Center(
+              child: Container(
+                width: 340,
+                padding: const EdgeInsets.fromLTRB(28, 36, 28, 32),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: colorScheme.primary.withValues(alpha: 0.35),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 36,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.24),
-                    blurRadius: 36,
-                    offset: const Offset(0, 14),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 76,
-                    height: 76,
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.upload_file_rounded,
-                      size: 36,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    '松开以发送文件',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '支持一次拖入多个文件',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '松手后开始加密传输',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colorScheme.primary,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 76,
+                      height: 76,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.upload_file_rounded,
+                        size: 36,
+                        color: colorScheme.onPrimaryContainer,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    Text(
+                      '松开以发送文件',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '支持一次拖入多个文件',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '松手后开始加密传输',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

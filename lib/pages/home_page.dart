@@ -13,6 +13,7 @@ import '../components/ConnectBySelfBottomSheet.dart';
 import '../components/device_icon.dart';
 import '../core/android_bridge.dart';
 import '../core/file_storage.dart';
+import '../core/protocol.dart';
 import '../core/theme_controller.dart';
 import '../models/friends.dart';
 import '../models/session.dart';
@@ -48,7 +49,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _multicast = Multicast(friendCallback: _onDiscovery);
     _controlServer = ControlServer(
       onRequest: _handleIncomingRequest,
       onSessionReady: _enterSession,
@@ -58,7 +58,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       },
     );
-    _controlServer.start();
+    _multicast = Multicast(
+      friendCallback: _onDiscovery,
+      controlPortProvider: () => _controlServer.port,
+    );
+    _controlServer.start().then((ok) {
+      if (!mounted) return;
+      if (!ok) {
+        _showSnack('控制端口被占用，可能无法接收连接请求');
+      } else {
+        _multicast.search();
+      }
+    });
 
     _checkStorage();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -69,6 +80,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _multicast.close();
     _controlServer.close();
     _isClose.dispose();
     super.dispose();
@@ -114,8 +126,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       final address = decoded['address'];
       final name = decoded['deviceName'];
       final deviceType = decoded['deviceType'];
+      final port = parseValidPort(decoded['controlPort']) ?? controlPort;
       if (address is String && name is String && deviceType is String) {
-        context.read<Friends>().addFriend(address, name, deviceType);
+        context.read<Friends>().addFriend(address, name, deviceType, port: port);
       }
     } catch (_) {
       // 忽略格式不正确的发现消息。
@@ -133,9 +146,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (_inSession || _connectingAddress != null) return false;
 
     if (!mounted) return false;
-    context
-        .read<Friends>()
-        .addFriend(request.address, request.name, request.type);
+    context.read<Friends>().addFriend(
+          request.address,
+          request.name,
+          request.type,
+          port: session.peerControlPort,
+        );
 
     final accepted = await showModalBottomSheet<bool>(
       context: context,
@@ -154,9 +170,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _enterSession(HandSession session) {
-    if (!mounted) return;
+    if (!mounted) {
+      unawaited(session.localTransferServer?.close(force: true));
+      return;
+    }
     if (_inSession) {
-      unawaited(ControlClient.close(session.peerAddress));
+      unawaited(session.localTransferServer?.close(force: true));
+      unawaited(ControlClient.close(session.peerAddress,
+          port: session.peerControlPort));
       return;
     }
     _inSession = true;
@@ -193,15 +214,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final friend = context.read<Friends>().getFriendByAddress(target);
     final title = displayName ?? friend?.deviceName ?? (target);
+    final targetPort = friend?.port ?? controlPort;
     _showWaitingSheet(
         friend == null ? target : '$title · ${friend.deviceType} · $target');
 
-    final outcome = await ControlClient.request(address: target);
+    final localTransferServer = await bindServerPort(transferPort, shared: true);
+    final outcome = await ControlClient.request(
+      address: target,
+      port: targetPort,
+      localControlPort: _controlServer.port,
+      localTransferPort: localTransferServer.port,
+    );
 
-    if (!mounted) return;
+    if (!mounted) {
+      unawaited(localTransferServer.close(force: true));
+      return;
+    }
     if (token != _connectToken) {
+      unawaited(localTransferServer.close(force: true));
       // 用户已取消等待；若对方随后接受了请求，顺手通知对方断开。
-      if (outcome.ok) unawaited(ControlClient.close(target));
+      if (outcome.ok) {
+        unawaited(ControlClient.close(target, port: targetPort));
+      }
       return;
     }
 
@@ -209,8 +243,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() => _connectingAddress = null);
 
     if (outcome.ok) {
-      _enterSession(outcome.session!);
+      _enterSession(
+        outcome.session!.copyWith(localTransferServer: localTransferServer),
+      );
     } else {
+      unawaited(localTransferServer.close(force: true));
       _showSnack(outcome.error);
     }
   }

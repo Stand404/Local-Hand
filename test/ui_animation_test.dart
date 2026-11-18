@@ -58,4 +58,77 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(barValue(), closeTo(0.8, 0.001));
   });
+
+  testWidgets('文件发送失败只显示一行错误并展示重试刷新图标', (tester) async {
+    var retried = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessageWidget(
+          message: 'report.pdf',
+          path: 'C:/tmp/report.pdf',
+          type: StandType.document,
+          progress: 1.0,
+          size: 2048,
+          mine: true,
+          failed: true,
+          error: '发送失败，请检查连接',
+          onRetry: () => retried = true,
+        ),
+      ),
+    ));
+
+    expect(find.text('发送失败，请检查连接'), findsOneWidget);
+    expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.refresh_rounded));
+    expect(retried, isTrue);
+  });
+
+  testWidgets('文件接收失败只显示一行错误且不显示重试图标', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: MessageWidget(
+          message: 'archive.zip',
+          path: 'C:/tmp/archive.zip',
+          type: StandType.other,
+          progress: 0.4,
+          size: 4096,
+          mine: false,
+          failed: true,
+          error: '接收失败，数据校验未通过',
+        ),
+      ),
+    ));
+
+    expect(find.text('接收失败，数据校验未通过'), findsOneWidget);
+    expect(find.byIcon(Icons.error_outline_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.refresh_rounded), findsNothing);
+  });
+
+  testWidgets('文本消息发送失败展示重试刷新图标并可触发重试', (tester) async {
+    var retried = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MessageWidget(
+          message: 'hello',
+          path: '',
+          type: StandType.text,
+          progress: 0,
+          size: 0,
+          mine: true,
+          failed: true,
+          error: '消息发送失败',
+          onRetry: () => retried = true,
+        ),
+      ),
+    ));
+
+    expect(find.text('hello'), findsOneWidget);
+    expect(find.text('消息发送失败'), findsOneWidget);
+    expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.refresh_rounded));
+    expect(retried, isTrue);
+  });
 }

@@ -1,13 +1,15 @@
 import 'package:flutter/cupertino.dart';
+import 'package:localhand/core/protocol.dart';
 
 class Friend {
   String address;
   String deviceName;
   String deviceType;
+  int port;
   DateTime lastSeen;
 
   Friend(this.address, this.deviceName, this.deviceType,
-      {DateTime? lastSeen})
+      {this.port = controlPort, DateTime? lastSeen})
       : lastSeen = lastSeen ?? DateTime.now();
 }
 
@@ -20,18 +22,21 @@ class Friends extends ChangeNotifier {
     return list;
   }
 
-  void addFriend(String address, String deviceName, String deviceType) {
+  void addFriend(String address, String deviceName, String deviceType,
+      {int port = controlPort}) {
     final existing = friendsMap[address];
     if (existing == null) {
-      friendsMap[address] =
-          Friend(address, deviceName, deviceType, lastSeen: DateTime.now());
+      friendsMap[address] = Friend(address, deviceName, deviceType,
+          port: port, lastSeen: DateTime.now());
       notifyListeners();
       return;
     }
-    final changed =
-        existing.deviceName != deviceName || existing.deviceType != deviceType;
+    final changed = existing.deviceName != deviceName ||
+        existing.deviceType != deviceType ||
+        existing.port != port;
     existing.deviceName = deviceName;
     existing.deviceType = deviceType;
+    existing.port = port;
     existing.lastSeen = DateTime.now();
     if (changed) notifyListeners();
   }

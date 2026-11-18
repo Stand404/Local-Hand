@@ -21,6 +21,9 @@ class ConnectOutcome {
 class ControlClient {
   static Future<ConnectOutcome> request({
     required String address,
+    int port = controlPort,
+    int localControlPort = controlPort,
+    int localTransferPort = transferPort,
   }) async {
     final local = await loadLocalDevice();
     final keys = generateKeyPair();
@@ -30,7 +33,7 @@ class ControlClient {
 
     try {
       final request = await client
-          .postUrl(Uri.parse('http://$address:$controlPort/request'))
+          .postUrl(Uri.parse('http://$address:$port/request'))
           .timeout(const Duration(seconds: 6));
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode({
@@ -38,6 +41,8 @@ class ControlClient {
         'name': local.name,
         'type': local.type,
         'publicKey': keys.publicKey,
+        'controlPort': localControlPort,
+        'transferPort': localTransferPort,
       }));
 
       final response =
@@ -74,12 +79,18 @@ class ControlClient {
         peerPublicKey: peerPublicKey,
       );
 
+      final peerControlPort = parseValidPort(data['controlPort']) ?? port;
+      final peerTransferPort =
+          parseValidPort(data['transferPort']) ?? transferPort;
+
       return ConnectOutcome.success(HandSession(
         peerAddress: address,
         peerName: data['name'] is String ? data['name'] as String : '未知设备',
         peerType: data['type'] is String ? data['type'] as String : '未知',
         key: sessionKey,
         initiator: true,
+        peerControlPort: peerControlPort,
+        peerTransferPort: peerTransferPort,
       ));
     } on TimeoutException {
       return const ConnectOutcome.failure(
@@ -94,12 +105,12 @@ class ControlClient {
     }
   }
 
-  static Future<void> close(String address) async {
+  static Future<void> close(String address, {int port = controlPort}) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 2);
     try {
       final request = await client
-          .postUrl(Uri.parse('http://$address:$controlPort/close'))
+          .postUrl(Uri.parse('http://$address:$port/close'))
           .timeout(const Duration(seconds: 2));
       request.write('{}');
       final response = await request.close().timeout(const Duration(seconds: 2));

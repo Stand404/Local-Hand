@@ -35,24 +35,23 @@ class ControlServer {
   HttpServer? _server;
   LocalDevice _device = const LocalDevice('未知设备', '未知');
 
+  int get port => _server?.port ?? controlPort;
+
   ControlServer({
     required this.onRequest,
     required this.onSessionReady,
     required this.onPeerClosed,
   });
 
-  Future<void> start() async {
+  Future<bool> start() async {
     _device = await loadLocalDevice();
     try {
-      final server = await HttpServer.bind(
-        InternetAddress.anyIPv4,
-        controlPort,
-        shared: true,
-      );
+      final server = await bindServerPort(controlPort, shared: true);
       _server = server;
       server.listen(_handle);
+      return true;
     } on SocketException {
-      // 端口被其他实例占用时保持静默，传输仍可在已有会话中进行。
+      return false;
     }
   }
 
@@ -141,12 +140,18 @@ class ControlServer {
       return;
     }
 
+    final peerControlPort = parseValidPort(data['controlPort']) ?? controlPort;
+    final peerTransferPort =
+        parseValidPort(data['transferPort']) ?? transferPort;
+
     final session = HandSession(
       peerAddress: address,
       peerName: incoming.name,
       peerType: incoming.type,
       key: sessionKey,
       initiator: false,
+      peerControlPort: peerControlPort,
+      peerTransferPort: peerTransferPort,
     );
 
     var accepted = false;
@@ -163,15 +168,25 @@ class ControlServer {
       return;
     }
 
-    await _respondJson(request, HttpStatus.ok, {
-      'ok': true,
-      'name': _device.name,
-      'type': _device.type,
-      'publicKey': localKeys.publicKey,
-    });
+    final localTransferServer = await bindServerPort(transferPort, shared: true);
+    try {
+      await _respondJson(request, HttpStatus.ok, {
+        'ok': true,
+        'name': _device.name,
+        'type': _device.type,
+        'publicKey': localKeys.publicKey,
+        'controlPort': port,
+        'transferPort': localTransferServer.port,
+      });
+    } catch (_) {
+      await localTransferServer.close(force: true);
+      return;
+    }
 
     // 响应已经发回发起方，再进入传输页面。
-    scheduleMicrotask(() => onSessionReady(session));
+    final readySession =
+        session.copyWith(localTransferServer: localTransferServer);
+    scheduleMicrotask(() => onSessionReady(readySession));
   }
 
   Future<void> _handleClose(HttpRequest request) async {

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localhand/core/protocol.dart';
 import 'package:localhand/core/secure_channel.dart';
 import 'package:localhand/http/StandHttpClient.dart';
 import 'package:localhand/http/StandHttpServer.dart';
@@ -98,4 +99,23 @@ void main() {
       await root.delete(recursive: true);
     }
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('首选端口不可用时自动回退到可用端口', () async {
+    final occupied = await HttpServer.bind(
+      InternetAddress.anyIPv4,
+      0,
+      shared: false,
+    );
+    try {
+      final fallback = await bindServerPort(occupied.port, shared: false);
+      try {
+        expect(fallback.port, isPositive);
+        expect(fallback.port, isNot(occupied.port));
+      } finally {
+        await fallback.close(force: true);
+      }
+    } finally {
+      await occupied.close(force: true);
+    }
+  });
 }

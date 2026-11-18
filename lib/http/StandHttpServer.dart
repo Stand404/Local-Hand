@@ -32,37 +32,59 @@ class StandHttpServer {
   final Function(String message) receiveMsgCallback;
   final Function(double progress, int index) onProgress;
   final Function(int index, String error)? onReceiveError;
+  final void Function(String message)? onStartError;
 
   HttpServer? _server;
   CryptoWorker? _worker;
+  bool _closed = false;
 
   StandHttpServer({
     required this.key,
     this.port = transferPort,
+    HttpServer? preboundServer,
     required this.receiveFileCallback,
     required this.receiveFileEndCallback,
     required this.receiveMsgCallback,
     required this.onProgress,
     this.onReceiveError,
+    this.onStartError,
   }) {
-    startServer();
+    if (preboundServer != null) {
+      _server = preboundServer;
+      preboundServer.listen(_handle);
+    } else {
+      startServer();
+    }
   }
 
   Future<void> startServer() async {
-    try {
-      final server = await HttpServer.bind(
-        InternetAddress.anyIPv4,
-        port,
-        shared: true,
-      );
-      _server = server;
-      server.listen(_handle);
-    } on SocketException {
-      // 端口被占用时等待下一个会话重新绑定。
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (_closed) return;
+      try {
+        final server = await HttpServer.bind(
+          InternetAddress.anyIPv4,
+          port,
+          shared: true,
+        );
+        if (_closed) {
+          await server.close(force: true);
+          return;
+        }
+        _server = server;
+        server.listen(_handle);
+        return;
+      } on SocketException {
+        if (attempt < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          continue;
+        }
+        onStartError?.call('接收端口 $port 被占用，可能无法接收消息和文件');
+      }
     }
   }
 
   void closeServer() {
+    _closed = true;
     _server?.close(force: true);
     _server = null;
     _worker?.close();

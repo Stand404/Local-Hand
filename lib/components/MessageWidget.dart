@@ -19,6 +19,7 @@ class MessageWidget extends StatelessWidget {
   final bool failed;
   final String? error;
   final bool mine;
+  final VoidCallback? onRetry;
 
   const MessageWidget({
     super.key,
@@ -30,15 +31,16 @@ class MessageWidget extends StatelessWidget {
     required this.mine,
     this.failed = false,
     this.error,
+    this.onRetry,
   });
 
-  bool get _completed => progress >= 1;
+  bool get _completed => !failed && progress >= 1;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     if (type == StandType.text) {
-      return GestureDetector(
+      final bubble = GestureDetector(
         onLongPressStart: (details) =>
             _showMenu(context, details.globalPosition),
         onSecondaryTapUp: (details) =>
@@ -62,6 +64,48 @@ class MessageWidget extends StatelessWidget {
             ),
           ),
         ),
+      );
+      if (!failed) return bubble;
+      return Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (mine && onRetry != null)
+                IconButton(
+                  onPressed: onRetry,
+                  tooltip: '重试发送',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    Icons.refresh_rounded,
+                    size: 20,
+                    color: colorScheme.error,
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Icon(
+                    Icons.error_outline_rounded,
+                    size: 18,
+                    color: colorScheme.error,
+                  ),
+                ),
+              Flexible(child: bubble),
+            ],
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              error!,
+              style: TextStyle(fontSize: 11, color: colorScheme.error),
+            ),
+          ],
+        ],
       );
     }
 
@@ -135,15 +179,34 @@ class MessageWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (_completed)
+                  if (failed && mine && onRetry != null)
+                    IconButton(
+                      onPressed: onRetry,
+                      tooltip: '重试发送',
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints.tightFor(width: 28, height: 28),
+                      icon: Icon(
+                        Icons.refresh_rounded,
+                        size: 20,
+                        color: colorScheme.error,
+                      ),
+                    )
+                  else if (failed)
+                    Icon(
+                      Icons.error_outline_rounded,
+                      size: 18,
+                      color: colorScheme.error,
+                    )
+                  else if (_completed)
                     Icon(
                       Icons.check_circle_rounded,
                       size: 18,
-                      color: failed ? colorScheme.error : Colors.green.shade500,
+                      color: Colors.green.shade500,
                     ),
                 ],
               ),
-              if (!_completed || failed) ...[
+              if (!_completed) ...[
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -163,13 +226,6 @@ class MessageWidget extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              ],
-              if (failed && error != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  error!,
-                  style: TextStyle(fontSize: 11, color: colorScheme.error),
                 ),
               ],
             ],

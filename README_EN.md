@@ -13,8 +13,8 @@ A simple, cross-platform LAN transmission tool built on Flutter.
 
 ## Function
 
-1. Automatic LAN discovery with a reliable TCP connection handshake
-2. Send and receive files and text messages, with multi-file selection
+1. Automatic LAN discovery (UDP candidate ports `26500` / `26510`, backward-compatible with `65000`) and TCP control handshake with dynamic port negotiation and automatic fallback (avoiding Windows Hyper-V/WinNAT reserved port ranges)
+2. Send and receive files and text messages, with multi-file selection and one-tap retry on failed sends
 3. End-to-end encryption: ECDH P-256 key agreement, AES-256-GCM for messages and AES-256-CTR + HMAC-SHA256 for file chunks
 4. Open the file (bring up the media player or select another pop-up window)
 5. Message long press menu (copy text, copy full path, open file location); right-click menu on desktop
